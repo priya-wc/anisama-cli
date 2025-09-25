@@ -1,0 +1,628 @@
+#!/usr/bin/env python3
+
+import requests
+import subprocess
+import re
+import sys
+import json
+import sqlite3
+from bs4 import BeautifulSoup
+import os
+import time
+from datetime import datetime
+import locale
+import pathlib
+import argparse
+import asyncio
+
+# ===== COULEURS ANSI =====
+RED = R = '\033[91m'
+GREEN = G = '\033[92m'
+YELLOW = Y = '\033[93m' 
+BLUE = B = '\033[94m'
+MAGENTA = M = '\033[95m'
+CYAN = C = '\033[96m'
+WHITE = W = '\033[97m'
+RESET = X = '\033[0m'
+BOLD = '\033[1m'
+
+def show_banner():
+    # Clear terminal for clean interface
+    os.system('clear')
+    print()
+    print(CYAN + "╔══════════════════════════════════════════════════════╗" + RESET)
+    print(CYAN + "║  " + YELLOW + "⚡ Powered by iamlaz + ani-cli UI" + CYAN + "                ║" + RESET)
+    print(CYAN + "║  " + BLUE + "🇫🇷 Tip: Use --vf for French !" + CYAN + "       ║" + RESET)
+    print(CYAN + "╚══════════════════════════════════════════════════════╝" + RESET)
+    print()
+
+def check_deps():
+    print(BLUE + "🔍 Checking dependencies..." + RESET)
+    missing = []
+    
+    # Check fzf
+    try:
+        subprocess.run(["fzf", "--version"], capture_output=True, timeout=1)
+    except:
+        missing.append("fzf")
+    
+    # Check mpv
+    try:
+        subprocess.run(["mpv", "--version"], capture_output=True, timeout=1)
+    except:
+        missing.append("mpv")
+    
+    # Check python deps
+    try:
+        import requests, bs4
+    except:
+        missing.append("python packages (requests, beautifulsoup4)")
+    
+    if missing:
+        print(YELLOW + f"⚠  Missing: {', '.join(missing)}" + RESET)
+        print(YELLOW + "Install with: sudo apt install fzf mpv && pip install requests beautifulsoup4" + RESET)
+    else:
+        print(GREEN + "✓ All dependencies found! 🚀" + RESET)
+    print()
+
+# Utility functions for ani-cli style interface
+def fzf_select(items, prompt="Select: ", multi=False):
+    """Use fzf for selection like ani-cli"""
+    if not items:
+        return None
+    
+    if len(items) == 1:
+        return items[0]
+    
+    # Prepare input for fzf
+    fzf_input = "\n".join(items)
+    
+    cmd = ["fzf", "--reverse", "--cycle", f"--prompt={prompt}"]
+    if multi:
+        cmd.append("-m")
+    
+    try:
+        result = subprocess.run(
+            cmd,
+            input=fzf_input,
+            text=True,
+            capture_output=True
+        )
+        
+        if result.returncode == 0:
+            selected = result.stdout.strip()
+            if multi:
+                return selected.split('\n') if selected else []
+            return selected
+        return None
+    except FileNotFoundError:
+        print(RED + "✗ fzf not found! Please install fzf." + RESET)
+        return None
+    except Exception as e:
+        print(RED + f"✗ Selection error: {e}" + RESET)
+        return None
+
+def die(message):
+    """Print error and exit like ani-cli"""
+    print(f"\r\033[1;31m{message}\033[0m", file=sys.stderr)
+    sys.exit(1)
+
+def search_prompt():
+    """Interactive search prompt like ani-cli"""
+    while True:
+        try:
+            query = input(f"\033[1;36mSearch anime: \033[0m").strip()
+            if query:
+                return query
+        except (EOFError, KeyboardInterrupt):
+            print()
+            sys.exit(0)
+
+HEADERS_BASE = {
+    "user-agent": "Mozilla/5.0 (X11; Linux x86_64; rv:134.0) Gecko/20100101 Firefox/134.0",
+    "accept-language": "en-US,en;q=0.5",
+    "connection": "keep-alive"
+}
+
+def get_db_path():
+    db_dir = os.path.expanduser("~/.local/share/animesama-cli")
+    os.makedirs(db_dir, exist_ok=True)
+    return os.path.join(db_dir, "history.db")
+
+def init_db():
+    conn = sqlite3.connect(get_db_path())
+    cursor = conn.cursor()
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        anime_name TEXT NOT NULL,
+        episode TEXT NOT NULL,
+        saison TEXT NOT NULL,
+        url TEXT NOT NULL,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+    conn.commit()
+    conn.close()
+
+def add_to_history(anime_name, episode, saison, url):
+    try:
+        init_db()
+        conn = sqlite3.connect(get_db_path())
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id FROM history WHERE anime_name = ? AND saison = ?", 
+            (anime_name, saison)
+        )
+        existing_entry = cursor.fetchone()
+        if existing_entry:
+            cursor.execute(
+                "UPDATE history SET episode = ?, timestamp = CURRENT_TIMESTAMP WHERE id = ?",
+                (episode, existing_entry[0])
+            )
+            print(GREEN + "✓ History updated" + RESET)
+        else:
+            cursor.execute(
+                "INSERT INTO history (anime_name, episode, saison, url) VALUES (?, ?, ?, ?)",
+                (anime_name, episode, saison, url)
+            )
+            print(GREEN + "✓ Added to history" + RESET)
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(YELLOW + f"⚠ History error: {e}" + RESET)
+
+def get_history_entries():
+    db_path = get_db_path()
+    if not os.path.exists(db_path):
+        return []
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, anime_name, episode, saison, url FROM history ORDER BY timestamp DESC")
+    entries = cursor.fetchall()
+    conn.close()
+    return entries
+
+def get_seasons(html_content):
+    seasons = []
+    pattern = r'panneauAnime\("([^"]+)",\s*"([^"]+)"\)'
+    soup = BeautifulSoup(html_content, 'html.parser')
+    matches = re.findall(pattern, html_content)
+    if not matches:
+        return []
+    for name, path in matches:
+        if "film" not in name.lower() and name.lower() != "nom":
+            seasons.append({
+                'name': name,
+                'url': path
+            })
+    return seasons
+
+def get_episode_list(url):
+    url = url.replace('https://', '')
+    headers = {
+        "host": "anime-sama.fr",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64; rv:134.0) Gecko/20100101 Firefox/134.0",
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "accept-language": "en-US,en;q=0.5",
+        "connection": "keep-alive",
+        "upgrade-insecure-requests": "1",
+        "sec-fetch-dest": "document",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-user": "?1"
+    }
+    try:
+        response = requests.get(f"https://{url}", headers=headers)
+        content = response.text
+        pattern = r'episodes\.js\?filever=(\d+)'
+        match = re.search(pattern, content)
+        if match:
+            filever = match.group(1)
+            return filever
+        return None
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return None
+
+class AnimeDownloader:
+    def __init__(self, debug=False):
+        self.session = requests.Session()
+        self.session.headers.update(HEADERS_BASE)
+        self.debug = debug
+
+    def debug_print(self, *args, **kwargs):
+        if self.debug:
+            print("[DEBUG]", *args, **kwargs)
+
+    def get_anime_episode(self, complete_url, filever):
+        complete_url = complete_url.replace('https://', '')
+        url = f"https://{complete_url}/episodes.js"
+        try:
+            response = self.session.get(url, params={"filever": filever})
+            response.raise_for_status()
+            content = response.text
+            sibnet_links = {}
+            matches = re.finditer(r'https://video\.sibnet\.ru/shell\.php\?videoid=(\d+)', content)
+            sibnet_links = {str(i): match.group(1) for i, match in enumerate(matches, 1)}
+            return sibnet_links
+        except requests.RequestException as e:
+            print(f"Error fetching episodes: {e}")
+            return {}
+
+    def get_video_url(self, video_id):
+        try:
+            url = f"https://video.sibnet.ru/shell.php"
+            print(f"{B}🎬 Fetching video: {M}{video_id}{X}")
+            response = self.session.get(url, params={"videoid": video_id})
+            response.raise_for_status()
+            html_content = response.text
+            print(f"{Y}🔍 Analyzing content...{X}")
+            match = re.search(r'player\.src\(\[\{src: "/v/([^/]+)/', html_content)
+            if match:
+                video_hash = match.group(1)
+                url_sibnet = f"https://video.sibnet.ru/v/{video_hash}/{video_id}.mp4"
+                print(f"{G}✅ URL found{X}")
+                headers_sibnet = {
+                    **HEADERS_BASE,
+                    "range": "bytes=0-",
+                    "accept-encoding": "identity",
+                    "referer": "https://video.sibnet.ru/",
+                }
+                response_sibnet = self.session.get(url_sibnet, headers=headers_sibnet, allow_redirects=False)
+                if response_sibnet.status_code == 302:
+                    return response_sibnet.headers['Location']
+                else:
+                    print(f"Unexpected status code: {response_sibnet.status_code}")
+            else:
+                print("Pattern not found in HTML")
+            return None
+        except requests.RequestException as e:
+            print(f"Error getting video URL: {e}")
+            return None
+
+    def get_catalogue(self, query="", vf=False): 
+        try:
+            url = "https://anime-sama.fr/catalogue/"
+            headers = {
+                "host": "anime-sama.fr",
+                "connection": "keep-alive",
+                "sec-ch-ua": "\"Not A(Brand\";v=\"8\", \"Chromium\";v=\"132\", \"Google Chrome\";v=\"132\"",
+                "sec-ch-ua-mobile": "?0",
+                "sec-ch-ua-platform": "\"Windows\"",
+                "upgrade-insecure-requests": "1",
+                "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+                "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+                "sec-fetch-site": "same-origin",
+                "sec-fetch-mode": "navigate",
+                "sec-fetch-user": "?1",
+                "sec-fetch-dest": "document",
+                "referer": "https://anime-sama.fr/catalogue/",
+                "accept-language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
+            }
+            querystring = {"search": query}
+            if vf:
+                querystring["langue[]"] = "VF"
+            
+            self.debug_print(f"GET request to: {url}")
+            self.debug_print(f"Headers: {headers}")
+            self.debug_print(f"Querystring: {querystring}")
+            
+            response = self.session.get(url, headers=headers, params=querystring)
+            response.raise_for_status()
+            
+            self.debug_print(f"Status code: {response.status_code}")
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            animes = []
+            urls = []
+            
+            for card in soup.find_all('a', href=True):
+                titre = None
+                titre_tag = card.find('h1', class_='text-white font-bold uppercase text-md line-clamp-2')
+                if titre_tag:
+                    titre = titre_tag.text.strip()
+                
+                if titre and 'catalogue' in card['href']:
+                    animes.append(titre)
+                    urls.append(card['href'])
+            
+            if vf:
+                urls = [link.replace("vostfr", "vf") for link in urls]
+            
+            self.debug_print(f"Found titles: {len(animes)}")
+            self.debug_print(f"Titles: {animes}")
+            
+            return animes, urls
+        except requests.RequestException as e:
+            print(f"Error fetching catalogue: {e}")
+            self.debug_print(f"Full exception: {str(e)}")
+            return [], []
+
+def display_history():
+    """Display history with ani-cli style interface"""
+    init_db()
+    entries = get_history_entries()
+    
+    if not entries:
+        die("No history found!")
+    
+    # Format entries for fzf display
+    display_items = []
+    for i, entry in enumerate(entries):
+        entry_id, anime_name, episode, saison, url = entry
+        display_items.append(f"{i+1}. {anime_name} - {episode} - {saison}")
+    
+    print(f"\n{MAGENTA}{BOLD}📚 HISTORY:{RESET}")
+    selected = fzf_select(display_items, "Select from history: ")
+    
+    if not selected:
+        return
+    
+    # Parse selection
+    try:
+        index = int(selected.split('.')[0]) - 1
+        if index < 0 or index >= len(entries):
+            die("Invalid selection")
+        
+        entry = entries[index]
+        anime_name, episode, saison, url = entry[1:5]
+        
+        print(f"Playing {anime_name} - {episode} - {saison}")
+        
+        # Get current episode number
+        match = re.search(r'(\d+)$', episode)
+        if not match:
+            die("Cannot determine current episode")
+        
+        current_ep = int(match.group(1))
+        
+        filever = get_episode_list(url)
+        if not filever:
+            die("Cannot fetch episode list")
+        
+        downloader = AnimeDownloader()
+        episodes = downloader.get_anime_episode(url, filever)
+        if not episodes:
+            die("No episodes found")
+        
+        # Find next episode
+        ep_keys_int = [int(e) for e in episodes.keys() if e.isdigit()]
+        ep_keys_int.sort()
+        
+        next_ep = None
+        for ep in ep_keys_int:
+            if ep > current_ep:
+                next_ep = ep
+                break
+        
+        if next_ep is None:
+            print(f"Already at the last episode: {anime_name} - Episode {current_ep} - {saison}")
+            return
+        
+        video_id = episodes[str(next_ep)]
+        print(f"Fetching episode {next_ep}...")
+        
+        video_url = downloader.get_video_url(video_id)
+        if not video_url:
+            die("Cannot get video URL")
+        
+        if video_url.startswith('//'):
+            video_url = 'https:' + video_url
+        
+        print(f"Playing with mpv...")
+        try:
+            subprocess.run(['mpv', video_url, '--fullscreen'], check=True)
+            add_to_history(
+                anime_name=anime_name,
+                episode=f"Episode {next_ep}",
+                saison=saison,
+                url=url
+            )
+        except FileNotFoundError:
+            die("mpv is not installed")
+        except Exception as e:
+            die(f"Playback error: {e}")
+        
+    except (ValueError, IndexError):
+        die("Invalid selection format")
+
+def main():
+    show_banner()
+    check_deps()
+    
+    parser = argparse.ArgumentParser(
+        description="anime-sama CLI with ani-cli style interface",
+        add_help=False
+    )
+    parser.add_argument("query", nargs="*", help="Search query")
+    parser.add_argument("-c", "--continue", action="store_true", 
+                       dest="continuer", help="Continue from history")
+    parser.add_argument("--vf", action="store_true", 
+                       help="Search for VF only")
+    parser.add_argument("--debug", action="store_true", 
+                       help="Debug mode")
+    parser.add_argument("-h", "--help", action="store_true", 
+                       help="Show help")
+    
+    args = parser.parse_args()
+    
+    if args.help:
+        print("""
+Usage: anime-sama-cli [OPTIONS] [SEARCH_TERM]
+
+Options:
+    -c, --continue      Continue watching from history
+    --vf               Search for VF (French dub) only
+    --debug            Enable debug mode
+    -h, --help         Show this help
+
+Examples:
+    anime-sama-cli                    # Interactive search
+    anime-sama-cli naruto             # Search for "naruto"
+    anime-sama-cli -c                 # Show history
+    anime-sama-cli --vf one piece     # Search "one piece" in VF
+        """)
+        return
+    
+    if args.continuer:
+        display_history()
+        return
+    
+    # Main search logic - ani-cli style
+    query = " ".join(args.query) if args.query else ""
+    
+    if not query:
+        query = search_prompt()
+    
+    print(f"🔍 Searching for: {query}")
+    
+    downloader = AnimeDownloader(debug=args.debug)
+    animes, urls = downloader.get_catalogue(query, vf=args.vf)
+    
+    if not animes:
+        die("No results found!")
+    
+    print(f"\n{CYAN}{BOLD}📋 SEARCH RESULTS:{RESET}")
+    
+    # Format results for fzf
+    display_items = []
+    for i, anime in enumerate(animes):
+        display_items.append(f"{i+1}. {anime}")
+    
+    selected_anime_str = fzf_select(display_items, "Select anime: ")
+    if not selected_anime_str:
+        die("No anime selected")
+    
+    # Parse selection
+    try:
+        selected_index = int(selected_anime_str.split('.')[0]) - 1
+        if selected_index < 0 or selected_index >= len(animes):
+            die("Invalid selection")
+    except (ValueError, IndexError):
+        die("Invalid selection format")
+    
+    anime_name = animes[selected_index]
+    anime_url = urls[selected_index]
+    
+    print(f"Selected: {anime_name}")
+    
+    # Get seasons
+    response = requests.get(anime_url, headers=HEADERS_BASE)
+    seasons = get_seasons(response.text)
+    
+    if not seasons:
+        die("No seasons found")
+    
+    print(f"\n{YELLOW}{BOLD}🎭 SEASONS:{RESET}")
+    
+    # Format seasons for fzf
+    season_items = []
+    for i, season in enumerate(seasons):
+        season_items.append(f"{i+1}. {season['name']}")
+    
+    selected_season_str = fzf_select(season_items, "Select season: ")
+    if not selected_season_str:
+        die("No season selected")
+    
+    # Parse season selection
+    try:
+        season_index = int(selected_season_str.split('.')[0]) - 1
+        if season_index < 0 or season_index >= len(seasons):
+            die("Invalid season selection")
+    except (ValueError, IndexError):
+        die("Invalid season selection format")
+    
+    selected_season = seasons[season_index]
+    season_url = anime_url.rstrip('/') + '/' + selected_season['url'].lstrip('/')
+    
+    if args.vf:
+        season_url = season_url.replace("vostfr", "vf")
+    
+    print(f"Season URL: {season_url}")
+    
+    # Get episodes
+    filever = get_episode_list(season_url)
+    if not filever:
+        die("Cannot fetch episode list")
+    
+    episodes = downloader.get_anime_episode(season_url, filever)
+    if not episodes:
+        die("No episodes found")
+    
+    print(f"\n{BLUE}{BOLD}🎬 EPISODES:{RESET}")
+    
+    # Format episodes for fzf
+    ep_items = []
+    ep_keys = list(episodes.keys())
+    for i, ep in enumerate(ep_keys):
+        ep_items.append(f"{i+1}. Episode {ep}")
+    
+    selected_episode_str = fzf_select(ep_items, "Select episode: ")
+    if not selected_episode_str:
+        die("No episode selected")
+    
+    # Parse episode selection
+    try:
+        ep_index = int(selected_episode_str.split('.')[0]) - 1
+        if ep_index < 0 or ep_index >= len(ep_keys):
+            die("Invalid episode selection")
+    except (ValueError, IndexError):
+        die("Invalid episode selection format")
+    
+    selected_ep = ep_keys[ep_index]
+    video_id = episodes[selected_ep]
+    
+    print(f"Fetching episode {selected_ep}...")
+    
+    video_url = downloader.get_video_url(video_id)
+    if not video_url:
+        die("Cannot get video URL")
+    
+    if video_url.startswith('//'):
+        video_url = 'https:' + video_url
+    
+    print(f"Playing with mpv...")
+    try:
+        subprocess.run(['mpv', video_url, '--fullscreen'], check=True)
+        
+        # Determine season info for history
+        saison = selected_season['name']
+        if "saison" not in saison.lower():
+            match = re.search(r'/saison(\d+)', season_url, re.IGNORECASE)
+            if match:
+                saison = f"Saison {match.group(1)}"
+            else:
+                saison = selected_season['name']
+        
+        # Add version info
+        if "vostfr" in season_url.lower():
+            version_str = "VOSTFR"
+        elif re.search(r'/vf/?', season_url.lower()):
+            version_str = "VF"
+        else:
+            version_str = ""
+        
+        if version_str and version_str.lower() not in saison.lower():
+            saison = f"{saison} - {version_str}"
+        
+        add_to_history(
+            anime_name=anime_name,
+            episode=f"Episode {selected_ep}",
+            saison=saison,
+            url=season_url
+        )
+        
+    except FileNotFoundError:
+        die("mpv is not installed")
+    except Exception as e:
+        die(f"Playback error: {e}")
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print(f"\n{YELLOW}Interrupted by user{RESET}")
+        sys.exit(0)
+    except Exception as e:
+        die(f"Unexpected error: {e}")
