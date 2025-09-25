@@ -31,7 +31,7 @@ def show_banner():
     os.system('clear')
     print()
     print(CYAN + "╔══════════════════════════════════════════════════════╗" + RESET)
-    print(CYAN + "║  " + YELLOW + "⚡ Powered by iamlaz + ani-cli UI" + CYAN + "                ║" + RESET)
+    print(CYAN + "║  " + YELLOW + "⚡ Powered by karbonedev + ani-cli UI" + CYAN + "                ║" + RESET)
     print(CYAN + "║  " + BLUE + "🇫🇷 Tip: Use --vf for French !" + CYAN + "       ║" + RESET)
     print(CYAN + "╚══════════════════════════════════════════════════════╝" + RESET)
     print()
