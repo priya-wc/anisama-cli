@@ -1,5 +1,22 @@
 # 📝 CHANGELOG
 
+## Version 1.2.0 - 2025-09-25 🔧
+
+### ✨ NOUVELLES FONCTIONNALITÉS  
+- **🎯 Extraction HLS Vidmoly native** - Plus de dépendance yt-dlp pour Vidmoly
+- **📺 Qualité HD automatique** - Support 1080p natif pour Vidmoly (au lieu de 720p)
+- **🔢 Numérotation épisodes simplifiée** - Episodes numérotés 1, 2, 3... (fini les 1089-1151)
+
+### 🔧 AMÉLIORATIONS TECHNIQUES
+- **Extraction HLS manuelle** - Parse directement les URLs .m3u8 depuis les pages Vidmoly
+- **Headers optimisés** - Referer et User-Agent corrects pour éviter les 403
+- **Multiple qualités** - Détection automatique HD/SD par mpv
+
+### 🐛 CORRECTIONS  
+- **✅ Les Simpson HD** - Lecture 1080p parfaite sans yt-dlp
+- **✅ One Piece numérotation** - Episodes 1-63 au lieu de 1089-1151
+- **✅ Performance Vidmoly** - Extraction plus rapide et fiable
+
 ## Version 1.1.0 - 2025-09-25 🚀
 
 ### ✨ NOUVELLES FONCTIONNALITÉS
