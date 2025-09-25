@@ -39,31 +39,93 @@ def show_banner():
 def check_deps():
     print(BLUE + "🔍 Checking dependencies..." + RESET)
     missing = []
+    warnings = []
     
-    # Check fzf
-    try:
-        subprocess.run(["fzf", "--version"], capture_output=True, timeout=1)
-    except:
-        missing.append("fzf")
+    def check_command(cmd, name):
+        try:
+            result = subprocess.run([cmd, "--version"], capture_output=True, timeout=3, text=True)
+            if result.returncode == 0:
+                version = result.stdout.split('\n')[0] if result.stdout else "unknown version"
+                print(GREEN + f"  ✓ {name}: {version[:50]}..." + RESET)
+                return True
+        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.CalledProcessError):
+            pass
+        missing.append(name)
+        print(RED + f"  ✗ {name}: not found" + RESET)
+        return False
     
-    # Check mpv
-    try:
-        subprocess.run(["mpv", "--version"], capture_output=True, timeout=1)
-    except:
-        missing.append("mpv")
+    # Check essential tools
+    fzf_ok = check_command("fzf", "fzf")
+    mpv_ok = check_command("mpv", "mpv")
+    
+    # yt-dlp is optional, just warn if missing
+    if not check_command("yt-dlp", "yt-dlp"):
+        warnings.append("yt-dlp (optional, for some advanced features)")
+        missing.pop()  # Remove from missing since it's optional
     
     # Check python deps
     try:
-        import requests, bs4
-    except:
-        missing.append("python packages (requests, beautifulsoup4)")
+        import requests
+        print(GREEN + f"  ✓ requests: {requests.__version__}" + RESET)
+    except ImportError:
+        missing.append("python-requests")
+        print(RED + "  ✗ requests: not found" + RESET)
+    
+    try:
+        import bs4
+        print(GREEN + f"  ✓ beautifulsoup4: {bs4.__version__}" + RESET)
+    except ImportError:
+        missing.append("python-beautifulsoup4")
+        print(RED + "  ✗ beautifulsoup4: not found" + RESET)
     
     if missing:
-        print(YELLOW + f"⚠  Missing: {', '.join(missing)}" + RESET)
-        print(YELLOW + "Install with: sudo apt install fzf mpv && pip install requests beautifulsoup4" + RESET)
-    else:
+        show_error_with_solutions('deps', f"Missing: {', '.join(missing)}")
+        if not fzf_ok or not mpv_ok:
+            die("Critical dependencies missing")
+    elif warnings:
+        print(YELLOW + f"⚠  Optional: {', '.join(warnings)}" + RESET)
+    
+    if not missing:
         print(GREEN + "✓ All dependencies found! 🚀" + RESET)
     print()
+
+def check_connectivity():
+    """Check connectivity to streaming services with retry logic"""
+    print(BLUE + "🌐 Checking streaming services..." + RESET)
+    
+    def test_service(url, name, retries=2):
+        for attempt in range(retries + 1):
+            try:
+                response = requests.get(url, timeout=8, headers=HEADERS_BASE)
+                if response.status_code == 200:
+                    print(GREEN + f"✓ {name} accessible" + RESET)
+                    return True
+                else:
+                    print(YELLOW + f"⚠ {name} responds with status {response.status_code}" + RESET)
+                    return False
+            except requests.exceptions.Timeout:
+                if attempt < retries:
+                    print(YELLOW + f"⏳ {name} timeout, retrying..." + RESET)
+                    time.sleep(1)
+                    continue
+                print(YELLOW + f"⚠ {name} timeout after {retries + 1} attempts" + RESET)
+                return False
+            except requests.exceptions.ConnectionError:
+                print(RED + f"✗ {name} connection failed" + RESET)
+                return False
+            except Exception as e:
+                print(RED + f"✗ {name} error: {str(e)[:50]}..." + RESET)
+                return False
+        return False
+    
+    # Test both services
+    sibnet_ok = test_service("https://video.sibnet.ru/", "Sibnet")
+    vidmoly_ok = test_service("https://vidmoly.net/", "Vidmoly") or test_service("https://vidmoly.to/", "Vidmoly (fallback)")
+    
+    if not sibnet_ok and not vidmoly_ok:
+        print(YELLOW + "  💡 Network issues detected. Some animes may not work." + RESET)
+    elif not vidmoly_ok:
+        print(YELLOW + "  💡 Vidmoly issues detected. Try VPN for Naruto-type animes." + RESET)
 
 # Utility functions for ani-cli style interface
 def fzf_select(items, prompt="Select: ", multi=False):
@@ -102,10 +164,47 @@ def fzf_select(items, prompt="Select: ", multi=False):
         print(RED + f"✗ Selection error: {e}" + RESET)
         return None
 
-def die(message):
-    """Print error and exit like ani-cli"""
-    print(f"\r\033[1;31m{message}\033[0m", file=sys.stderr)
+def die(message, suggestion=None):
+    """Print error and exit like ani-cli with helpful suggestions"""
+    print(f"\r{RED}✗ {message}{RESET}", file=sys.stderr)
+    if suggestion:
+        print(f"{YELLOW}💡 Suggestion: {suggestion}{RESET}", file=sys.stderr)
     sys.exit(1)
+
+def show_error_with_solutions(error_type, details=None):
+    """Show error with multiple solutions"""
+    error_solutions = {
+        'network': [
+            "Check your internet connection",
+            "Try using a VPN if content is geo-blocked",
+            "Wait a moment and try again"
+        ],
+        'no_results': [
+            "Try a different search term",
+            "Check spelling of anime name", 
+            "Use --vf flag for French dub versions",
+            "Try searching in English or Japanese romanization"
+        ],
+        'playback': [
+            "Ensure mpv is properly installed",
+            "Try a different episode or anime",
+            "Check if the streaming service is accessible",
+            "Use VPN if you see Vidmoly errors"
+        ],
+        'deps': [
+            "Install missing dependencies: sudo apt install fzf mpv yt-dlp",
+            "Install Python packages: pip install requests beautifulsoup4",
+            "Check if all commands are in your PATH"
+        ]
+    }
+    
+    if error_type in error_solutions:
+        print(f"{YELLOW}💡 Try these solutions:{RESET}")
+        for i, solution in enumerate(error_solutions[error_type], 1):
+            print(f"   {i}. {solution}")
+        if details:
+            print(f"{BLUE}Details: {details}{RESET}")
+    print()
 
 def search_prompt():
     """Interactive search prompt like ani-cli"""
@@ -230,39 +329,129 @@ class AnimeDownloader:
         self.session = requests.Session()
         self.session.headers.update(HEADERS_BASE)
         self.debug = debug
-
+        self._cache = {}  # Simple in-memory cache
+        self._cache_ttl = 300  # 5 minutes cache TTL
+        
     def debug_print(self, *args, **kwargs):
         if self.debug:
             print("[DEBUG]", *args, **kwargs)
+    
+    def _get_cache_key(self, url, params=None):
+        """Generate cache key for requests"""
+        key = url
+        if params:
+            sorted_params = sorted(params.items()) if isinstance(params, dict) else params
+            key += str(sorted_params)
+        return key
+    
+    def _is_cache_valid(self, timestamp):
+        """Check if cache entry is still valid"""
+        return time.time() - timestamp < self._cache_ttl
+    
+    def _cached_request(self, method, url, **kwargs):
+        """Make cached HTTP request"""
+        cache_key = self._get_cache_key(url, kwargs.get('params'))
+        
+        # Check cache
+        if cache_key in self._cache:
+            cached_data, timestamp = self._cache[cache_key]
+            if self._is_cache_valid(timestamp):
+                self.debug_print(f"Cache hit for {url[:50]}...")
+                return cached_data
+        
+        # Make request with retry logic
+        for attempt in range(3):
+            try:
+                response = getattr(self.session, method.lower())(url, timeout=10, **kwargs)
+                response.raise_for_status()
+                
+                # Cache successful response
+                self._cache[cache_key] = (response, time.time())
+                if len(self._cache) > 50:  # Limit cache size
+                    oldest_key = min(self._cache.keys(), key=lambda k: self._cache[k][1])
+                    del self._cache[oldest_key]
+                
+                return response
+                
+            except requests.exceptions.Timeout:
+                if attempt < 2:
+                    self.debug_print(f"Timeout attempt {attempt + 1}, retrying...")
+                    time.sleep(1)
+                    continue
+                raise
+            except requests.exceptions.RequestException as e:
+                if attempt < 2 and "Connection" in str(e):
+                    self.debug_print(f"Connection error attempt {attempt + 1}, retrying...")
+                    time.sleep(2)
+                    continue
+                raise
 
     def get_anime_episode(self, complete_url, filever):
         complete_url = complete_url.replace('https://', '')
         url = f"https://{complete_url}/episodes.js"
         try:
-            response = self.session.get(url, params={"filever": filever})
-            response.raise_for_status()
+            response = self._cached_request('get', url, params={"filever": filever})
             content = response.text
-            sibnet_links = {}
-            matches = re.finditer(r'https://video\.sibnet\.ru/shell\.php\?videoid=(\d+)', content)
-            sibnet_links = {str(i): match.group(1) for i, match in enumerate(matches, 1)}
-            return sibnet_links
+            
+            # Check for Sibnet links first
+            sibnet_matches = re.finditer(r'https://video\.sibnet\.ru/shell\.php\?videoid=(\d+)', content)
+            sibnet_links = {str(i): ('sibnet', match.group(1)) for i, match in enumerate(sibnet_matches, 1)}
+            
+            # Check for Vidmoly links
+            vidmoly_matches = re.finditer(r'https://vidmoly\.to/embed-([^.]+)\.html', content)
+            vidmoly_links = {str(i): ('vidmoly', match.group(1)) for i, match in enumerate(vidmoly_matches, 1)}
+            
+            # Use the service with the most links available
+            sibnet_count = len(sibnet_links)
+            vidmoly_count = len(vidmoly_links)
+            
+            if sibnet_count >= vidmoly_count and sibnet_count > 0:
+                # Use Sibnet if it has more or equal episodes
+                all_links = sibnet_links
+                self.debug_print(f"Using Sibnet: {sibnet_count} links (Vidmoly: {vidmoly_count})")
+            elif vidmoly_count > 0:
+                # Use Vidmoly if it has more episodes
+                all_links = vidmoly_links  
+                self.debug_print(f"Using Vidmoly: {vidmoly_count} links (Sibnet: {sibnet_count})")
+            else:
+                # No links found
+                all_links = {}
+                self.debug_print(f"No links found (Sibnet: {sibnet_count}, Vidmoly: {vidmoly_count})")
+            
+            return all_links
         except requests.RequestException as e:
             print(f"Error fetching episodes: {e}")
             return {}
 
-    def get_video_url(self, video_id):
+    def get_video_url(self, video_data):
+        try:
+            video_type, video_id = video_data
+            print(f"{B}🎬 Fetching video: {M}{video_type}:{video_id}{X}")
+            
+            if video_type == 'sibnet':
+                return self._get_sibnet_url(video_id)
+            elif video_type == 'vidmoly':
+                return self._get_vidmoly_url(video_id)
+            else:
+                print(f"Unsupported video type: {video_type}")
+                return None
+                
+        except Exception as e:
+            print(f"Error getting video URL: {e}")
+            return None
+    
+    def _get_sibnet_url(self, video_id):
         try:
             url = f"https://video.sibnet.ru/shell.php"
-            print(f"{B}🎬 Fetching video: {M}{video_id}{X}")
             response = self.session.get(url, params={"videoid": video_id})
             response.raise_for_status()
             html_content = response.text
-            print(f"{Y}🔍 Analyzing content...{X}")
+            print(f"{Y}🔍 Analyzing Sibnet content...{X}")
             match = re.search(r'player\.src\(\[\{src: "/v/([^/]+)/', html_content)
             if match:
                 video_hash = match.group(1)
                 url_sibnet = f"https://video.sibnet.ru/v/{video_hash}/{video_id}.mp4"
-                print(f"{G}✅ URL found{X}")
+                print(f"{G}✅ Sibnet URL found{X}")
                 headers_sibnet = {
                     **HEADERS_BASE,
                     "range": "bytes=0-",
@@ -273,30 +462,69 @@ class AnimeDownloader:
                 if response_sibnet.status_code == 302:
                     return response_sibnet.headers['Location']
                 else:
-                    print(f"Unexpected status code: {response_sibnet.status_code}")
+                    print(f"Unexpected Sibnet status code: {response_sibnet.status_code}")
             else:
-                print("Pattern not found in HTML")
+                print("Sibnet pattern not found in HTML")
             return None
         except requests.RequestException as e:
-            print(f"Error getting video URL: {e}")
+            print(f"Error getting Sibnet URL: {e}")
             return None
+    
+    def _get_vidmoly_url(self, video_id):
+        """
+        Try to extract direct video URL from Vidmoly embed page
+        """
+        vidmoly_domains = ['vidmoly.net', 'vidmoly.to']
+        
+        for domain in vidmoly_domains:
+            try:
+                embed_url = f"https://{domain}/embed-{video_id}.html"
+                print(f"{Y}🔍 Trying to extract from {domain}...{X}")
+                
+                # Try to get the embed page
+                response = self._cached_request('get', embed_url)
+                html_content = response.text
+                
+                # Look for direct video URL patterns in the HTML
+                video_patterns = [
+                    r'file:\s*["\']([^"\']+\.mp4[^"\']*)["\']',
+                    r'src:\s*["\']([^"\']+\.mp4[^"\']*)["\']',
+                    r'"file":"([^"]+\.mp4[^"]*)"',
+                    r'sources:\s*\[\s*{\s*file:\s*["\']([^"\']+)["\']'
+                ]
+                
+                for pattern in video_patterns:
+                    match = re.search(pattern, html_content, re.IGNORECASE)
+                    if match:
+                        video_url = match.group(1)
+                        if video_url.startswith('//'):
+                            video_url = 'https:' + video_url
+                        elif not video_url.startswith('http'):
+                            video_url = f"https://{domain}/{video_url.lstrip('/')}"
+                        
+                        print(f"{G}✅ Found direct video URL{X}")
+                        return video_url
+                
+                # If no direct URL found, return embed URL as fallback
+                print(f"{Y}⚠ No direct URL found, using embed URL{X}")
+                return embed_url
+                
+            except Exception as e:
+                self.debug_print(f"Error with {domain}: {e}")
+                continue
+        
+        # Final fallback
+        fallback_url = f"https://vidmoly.net/embed-{video_id}.html"
+        print(f"{Y}🔍 Using Vidmoly fallback...{X}")
+        return fallback_url
 
     def get_catalogue(self, query="", vf=False): 
         try:
             url = "https://anime-sama.fr/catalogue/"
             headers = {
+                **HEADERS_BASE,  # Use base headers and extend
                 "host": "anime-sama.fr",
-                "connection": "keep-alive",
-                "sec-ch-ua": "\"Not A(Brand\";v=\"8\", \"Chromium\";v=\"132\", \"Google Chrome\";v=\"132\"",
-                "sec-ch-ua-mobile": "?0",
-                "sec-ch-ua-platform": "\"Windows\"",
-                "upgrade-insecure-requests": "1",
-                "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
-                "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-                "sec-fetch-site": "same-origin",
-                "sec-fetch-mode": "navigate",
-                "sec-fetch-user": "?1",
-                "sec-fetch-dest": "document",
+                "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
                 "referer": "https://anime-sama.fr/catalogue/",
                 "accept-language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
             }
@@ -305,11 +533,9 @@ class AnimeDownloader:
                 querystring["langue[]"] = "VF"
             
             self.debug_print(f"GET request to: {url}")
-            self.debug_print(f"Headers: {headers}")
             self.debug_print(f"Querystring: {querystring}")
             
-            response = self.session.get(url, headers=headers, params=querystring)
-            response.raise_for_status()
+            response = self._cached_request('get', url, headers=headers, params=querystring)
             
             self.debug_print(f"Status code: {response.status_code}")
             
@@ -338,6 +564,119 @@ class AnimeDownloader:
             print(f"Error fetching catalogue: {e}")
             self.debug_print(f"Full exception: {str(e)}")
             return [], []
+
+def show_available_animes():
+    """Show animes that work without VPN (Sibnet-based)"""
+    sibnet_animes = [
+        "south park", "one piece", "dragon ball", "attack on titan",
+        "demon slayer", "jujutsu kaisen", "my hero academia", "bleach",
+        "fairy tail", "hunter x hunter", "fullmetal alchemist", "death note"
+    ]
+    
+    print(f"\n{CYAN}{BOLD}🚀 ANIMES AVAILABLE WITHOUT VPN:{RESET}")
+    print(f"{GREEN}These animes use Sibnet and should work directly:{RESET}\n")
+    
+    downloader = AnimeDownloader(debug=False)
+    available_count = 0
+    
+    for anime in sibnet_animes:
+        print(f"{BLUE}Checking {anime.title()}...{RESET}", end=" ")
+        animes, urls = downloader.get_catalogue(anime, vf=False)
+        
+        if animes and urls:
+            # Quick check if it uses Sibnet
+            try:
+                anime_url = urls[0]
+                response = requests.get(anime_url, headers=HEADERS_BASE, timeout=5)
+                seasons = get_seasons(response.text)
+                
+                if seasons:
+                    season_url = anime_url.rstrip('/') + '/' + seasons[0]['url'].lstrip('/')
+                    filever = get_episode_list(season_url)
+                    
+                    if filever:
+                        episodes = downloader.get_anime_episode(season_url, filever)
+                        if episodes:
+                            first_episode = list(episodes.values())[0]
+                            service_type, _ = first_episode
+                            
+                            if service_type == 'sibnet':
+                                print(f"{GREEN}✅ Available ({animes[0]}){RESET}")
+                                available_count += 1
+                            else:
+                                print(f"{YELLOW}⚠ Uses Vidmoly{RESET}")
+                        else:
+                            print(f"{RED}✗ No episodes{RESET}")
+                    else:
+                        print(f"{RED}✗ No episode list{RESET}")
+                else:
+                    print(f"{RED}✗ No seasons{RESET}")
+            except:
+                print(f"{RED}✗ Error{RESET}")
+        else:
+            print(f"{RED}✗ Not found{RESET}")
+    
+    print(f"\n{CYAN}📊 SUMMARY:{RESET}")
+    print(f"  {GREEN}✓ {available_count} animes available without VPN{RESET}")
+    print(f"  {YELLOW}⚠ Vidmoly animes require VPN (Naruto, Sasuke, Boruto...){RESET}")
+    print(f"  {BLUE}💡 Use these animes for guaranteed playback{RESET}")
+
+def check_anime_services():
+    """Check which streaming service popular animes use"""
+    popular_animes = [
+        ("naruto", "Naruto"),
+        ("one piece", "One Piece"), 
+        ("south park", "South Park"),
+        ("dragon ball", "Dragon Ball"),
+        ("attack on titan", "Attack on Titan")
+    ]
+    
+    print(f"\n{CYAN}{BOLD}🔍 CHECKING STREAMING SERVICES:{RESET}")
+    downloader = AnimeDownloader(debug=False)
+    
+    for query, display_name in popular_animes:
+        print(f"\n{YELLOW}Checking {display_name}...{RESET}")
+        animes, urls = downloader.get_catalogue(query, vf=False)
+        
+        if animes and urls:
+            # Check first result
+            anime_url = urls[0]
+            try:
+                response = requests.get(anime_url, headers=HEADERS_BASE, timeout=5)
+                seasons = get_seasons(response.text)
+                
+                if seasons:
+                    season_url = anime_url.rstrip('/') + '/' + seasons[0]['url'].lstrip('/')
+                    filever = get_episode_list(season_url)
+                    
+                    if filever:
+                        episodes = downloader.get_anime_episode(season_url, filever)
+                        if episodes:
+                            # Check what type of episodes we got
+                            first_episode = list(episodes.values())[0]
+                            service_type, _ = first_episode
+                            
+                            if service_type == 'sibnet':
+                                print(f"  {GREEN}✓ {display_name}: Uses Sibnet (should work){RESET}")
+                            elif service_type == 'vidmoly':
+                                print(f"  {YELLOW}⚠ {display_name}: Uses Vidmoly (may need VPN){RESET}")
+                            else:
+                                print(f"  {BLUE}? {display_name}: Unknown service type{RESET}")
+                        else:
+                            print(f"  {RED}✗ {display_name}: No episodes found{RESET}")
+                    else:
+                        print(f"  {RED}✗ {display_name}: Cannot get episode list{RESET}")
+                else:
+                    print(f"  {RED}✗ {display_name}: No seasons found{RESET}")
+            except Exception as e:
+                print(f"  {RED}✗ {display_name}: Error - {e}{RESET}")
+        else:
+            print(f"  {RED}✗ {display_name}: Not found in catalogue{RESET}")
+    
+    print(f"\n{CYAN}📝 SUMMARY:{RESET}")
+    print(f"  {GREEN}✓ Sibnet animes should work normally{RESET}")
+    print(f"  {YELLOW}⚠ Vidmoly animes may require VPN to access{RESET}")
+    print(f"  {BLUE}💡 Use --vf flag for French dub versions{RESET}")
 
 def display_history():
     """Display history with ani-cli style interface"""
@@ -400,10 +739,10 @@ def display_history():
             print(f"Already at the last episode: {anime_name} - Episode {current_ep} - {saison}")
             return
         
-        video_id = episodes[str(next_ep)]
+        video_data = episodes[str(next_ep)]
         print(f"Fetching episode {next_ep}...")
         
-        video_url = downloader.get_video_url(video_id)
+        video_url = downloader.get_video_url(video_data)
         if not video_url:
             die("Cannot get video URL")
         
@@ -412,7 +751,13 @@ def display_history():
         
         print(f"Playing with mpv...")
         try:
-            subprocess.run(['mpv', video_url, '--fullscreen'], check=True)
+            # Add specific options for different video types
+            mpv_args = ['mpv', video_url, '--fullscreen']
+            if 'vidmoly.net' in video_url:
+                # Simple mpv call for Vidmoly URLs  
+                mpv_args = ['mpv', video_url, '--fullscreen']
+            
+            subprocess.run(mpv_args, check=True)
             add_to_history(
                 anime_name=anime_name,
                 episode=f"Episode {next_ep}",
@@ -421,6 +766,13 @@ def display_history():
             )
         except FileNotFoundError:
             die("mpv is not installed")
+        except subprocess.CalledProcessError as e:
+            if 'vidmoly.to' in video_url:
+                print(RED + "✗ Vidmoly playback failed" + RESET)
+                print(YELLOW + " Try using a VPN or select animes that use Sibnet" + RESET)
+                die("Vidmoly not accessible")
+            else:
+                die(f"Playback error: {e}")
         except Exception as e:
             die(f"Playback error: {e}")
         
@@ -442,6 +794,12 @@ def main():
                        help="Search for VF only")
     parser.add_argument("--debug", action="store_true", 
                        help="Debug mode")
+    parser.add_argument("--check-services", action="store_true",
+                       help="Show which streaming service each anime uses")
+    parser.add_argument("--available-only", action="store_true",
+                       help="Show only animes that work without VPN (Sibnet-based)")
+    parser.add_argument("--suggest-working", action="store_true",
+                       help="Suggest working alternatives if the requested anime uses Vidmoly")
     parser.add_argument("-h", "--help", action="store_true", 
                        help="Show help")
     
@@ -452,22 +810,36 @@ def main():
 Usage: anime-sama-cli [OPTIONS] [SEARCH_TERM]
 
 Options:
-    -c, --continue      Continue watching from history
-    --vf               Search for VF (French dub) only
-    --debug            Enable debug mode
-    -h, --help         Show this help
+    -c, --continue       Continue watching from history
+    --vf                Search for VF (French dub) only
+    --debug             Enable debug mode
+    --check-services    Show which streaming service each anime uses
+    --available-only    Show only animes that work without VPN (Sibnet)
+    -h, --help          Show this help
 
 Examples:
     anime-sama-cli                    # Interactive search
     anime-sama-cli naruto             # Search for "naruto"
     anime-sama-cli -c                 # Show history
     anime-sama-cli --vf one piece     # Search "one piece" in VF
+    anime-sama-cli --check-services   # Check service compatibility
+    anime-sama-cli --available-only   # Show only VPN-free animes
         """)
         return
     
     if args.continuer:
         display_history()
         return
+    
+    if args.check_services:
+        check_anime_services()
+        return
+    
+    if args.available_only:
+        show_available_animes()
+        return
+    
+    # Remove the problematic suggest_working option for now
     
     # Main search logic - ani-cli style
     query = " ".join(args.query) if args.query else ""
@@ -477,11 +849,33 @@ Examples:
     
     print(f"🔍 Searching for: {query}")
     
-    downloader = AnimeDownloader(debug=args.debug)
-    animes, urls = downloader.get_catalogue(query, vf=args.vf)
+    # Warn about Vidmoly issues and suggest VF versions
+    if any(anime in query.lower() for anime in ['naruto', 'sasuke', 'boruto']):
+        if not args.vf:
+            print(f"{YELLOW}⚠ Note: Naruto VOSTFR uses Vidmoly (may be blocked){RESET}")
+            print(f"{GREEN}💡 Try: --vf flag for French version (uses Sibnet - works better){RESET}")
+            print(f"{BLUE}   Example: ./anisama-cli --vf naruto{RESET}")
+        else:
+            print(f"{GREEN}✅ Using Naruto VF (French) - should work well (Sibnet){RESET}")
+    
+    try:
+        downloader = AnimeDownloader(debug=args.debug)
+        animes, urls = downloader.get_catalogue(query, vf=args.vf)
+    except requests.exceptions.ConnectionError:
+        show_error_with_solutions('network', 'Cannot connect to anime-sama.fr')
+        die("Network connection failed")
+    except requests.exceptions.Timeout:
+        show_error_with_solutions('network', 'Request timeout')
+        die("Connection timeout")
+    except Exception as e:
+        if args.debug:
+            print(f"{RED}Debug: {str(e)}{RESET}")
+        show_error_with_solutions('network')
+        die("Failed to fetch anime catalogue")
     
     if not animes:
-        die("No results found!")
+        show_error_with_solutions('no_results', f'Query: "{query}"')
+        die("No results found")
     
     print(f"\n{CYAN}{BOLD}📋 SEARCH RESULTS:{RESET}")
     
@@ -571,11 +965,11 @@ Examples:
         die("Invalid episode selection format")
     
     selected_ep = ep_keys[ep_index]
-    video_id = episodes[selected_ep]
+    video_data = episodes[selected_ep]
     
     print(f"Fetching episode {selected_ep}...")
     
-    video_url = downloader.get_video_url(video_id)
+    video_url = downloader.get_video_url(video_data)
     if not video_url:
         die("Cannot get video URL")
     
@@ -584,7 +978,21 @@ Examples:
     
     print(f"Playing with mpv...")
     try:
-        subprocess.run(['mpv', video_url, '--fullscreen'], check=True)
+        # Configure mpv arguments based on video source
+        if 'vidmoly' in video_url.lower():
+            print(f"{YELLOW}🎯 Attempting Vidmoly playback with yt-dlp...{RESET}")
+            # Use yt-dlp as the primary method for Vidmoly
+            mpv_args = [
+                'mpv', video_url, '--fullscreen',
+                '--ytdl-format=best[height<=720]/best',  # Prefer 720p or best available
+                '--user-agent=Mozilla/5.0 (X11; Linux x86_64; rv:134.0) Gecko/20100101 Firefox/134.0'
+            ]
+        else:
+            # For other sources (Sibnet, etc.)
+            mpv_args = ['mpv', video_url, '--fullscreen']
+        
+        print(f"{BLUE}Starting playback...{RESET}")
+        subprocess.run(mpv_args, check=True)
         
         # Determine season info for history
         saison = selected_season['name']
@@ -614,9 +1022,20 @@ Examples:
         )
         
     except FileNotFoundError:
+        show_error_with_solutions('deps', 'mpv not found')
         die("mpv is not installed")
+    except subprocess.CalledProcessError as e:
+        if 'vidmoly' in video_url.lower():
+            print(RED + "✗ Vidmoly playback failed" + RESET)
+            print(YELLOW + "  This anime uses Vidmoly service which may be blocked" + RESET)
+            show_error_with_solutions('playback', 'Vidmoly access issue')
+            die("Vidmoly streaming failed")
+        else:
+            show_error_with_solutions('playback', f'Exit code: {e.returncode}')
+            die(f"Media player error: {e}")
     except Exception as e:
-        die(f"Playback error: {e}")
+        show_error_with_solutions('playback')
+        die(f"Unexpected playback error: {e}")
 
 if __name__ == "__main__":
     try:
