@@ -386,6 +386,10 @@ class AnimeDownloader:
                     continue
                 raise
 
+    def _generate_episode_name(self, episode_number, anime_name=""):
+        """Generate simple episode names"""
+        return f"Episode {episode_number}"
+
     def get_anime_episode(self, complete_url, filever):
         complete_url = complete_url.replace('https://', '')
         url = f"https://{complete_url}/episodes.js"
@@ -393,30 +397,79 @@ class AnimeDownloader:
             response = self._cached_request('get', url, params={"filever": filever})
             content = response.text
             
-            # Check for Sibnet links first
-            sibnet_matches = re.finditer(r'https://video\.sibnet\.ru/shell\.php\?videoid=(\d+)', content)
-            sibnet_links = {str(i): ('sibnet', match.group(1)) for i, match in enumerate(sibnet_matches, 1)}
+            # Parse episode arrays (eps1, eps2, eps3, etc.)
+            all_links = {}
             
-            # Check for Vidmoly links
-            vidmoly_matches = re.finditer(r'https://vidmoly\.to/embed-([^.]+)\.html', content)
-            vidmoly_links = {str(i): ('vidmoly', match.group(1)) for i, match in enumerate(vidmoly_matches, 1)}
+            # Find all episode arrays in the JavaScript
+            array_pattern = r'var eps(\d+) = \[(.*?)\];'
+            arrays = re.findall(array_pattern, content, re.DOTALL)
             
-            # Use the service with the most links available
-            sibnet_count = len(sibnet_links)
-            vidmoly_count = len(vidmoly_links)
-            
-            if sibnet_count >= vidmoly_count and sibnet_count > 0:
-                # Use Sibnet if it has more or equal episodes
-                all_links = sibnet_links
-                self.debug_print(f"Using Sibnet: {sibnet_count} links (Vidmoly: {vidmoly_count})")
-            elif vidmoly_count > 0:
-                # Use Vidmoly if it has more episodes
-                all_links = vidmoly_links  
-                self.debug_print(f"Using Vidmoly: {vidmoly_count} links (Sibnet: {sibnet_count})")
+            if arrays:
+                # Determine which server to use (prefer Sibnet, then Vidmoly)
+                best_server = None
+                best_episodes = []
+                
+                for array_num, array_content in arrays:
+                    self.debug_print(f"Analyzing eps{array_num} array...")
+                    
+                    # Check for Sibnet links in this array
+                    sibnet_matches = list(re.finditer(r'https://video\.sibnet\.ru/shell\.php\?videoid=(\d+)', array_content))
+                    if sibnet_matches:
+                        best_server = 'sibnet'
+                        best_episodes = [(match.group(1), 'sibnet') for match in sibnet_matches]
+                        self.debug_print(f"Found {len(sibnet_matches)} Sibnet episodes in eps{array_num}")
+                        break  # Prefer Sibnet, stop looking
+                    
+                    # Check for Vidmoly links in this array
+                    vidmoly_matches = list(re.finditer(r'https://vidmoly\.to/embed-([^.]+)\.html', array_content))
+                    if vidmoly_matches and not best_server:
+                        best_server = 'vidmoly'
+                        best_episodes = [(match.group(1), 'vidmoly') for match in vidmoly_matches]
+                        self.debug_print(f"Found {len(vidmoly_matches)} Vidmoly episodes in eps{array_num}")
+                
+                # Now build the episodes dict with simple numbering
+                if best_episodes:
+                    for i, (video_id, server_type) in enumerate(best_episodes):
+                        episode_number = i + 1  # Simple 1-based numbering
+                        episode_name = self._generate_episode_name(episode_number, complete_url)
+                        # Store both the video data and the episode name
+                        all_links[str(episode_number)] = (server_type, video_id, episode_name)
+                    
+                    self.debug_print(f"Using {best_server} server with {len(best_episodes)} episodes")
             else:
-                # No links found
-                all_links = {}
-                self.debug_print(f"No links found (Sibnet: {sibnet_count}, Vidmoly: {vidmoly_count})")
+                # Fallback to old method if no arrays found
+                self.debug_print("No episode arrays found, using fallback method...")
+                
+                # Check for Sibnet links first
+                sibnet_matches = re.finditer(r'https://video\.sibnet\.ru/shell\.php\?videoid=(\d+)', content)
+                sibnet_links = {str(i): ('sibnet', match.group(1)) for i, match in enumerate(sibnet_matches, 1)}
+                
+                # Check for Vidmoly links
+                vidmoly_matches = re.finditer(r'https://vidmoly\.to/embed-([^.]+)\.html', content)
+                vidmoly_links = {str(i): ('vidmoly', match.group(1)) for i, match in enumerate(vidmoly_matches, 1)}
+                
+                # Use the service with the most links available (fallback method)
+                sibnet_count = len(sibnet_links)
+                vidmoly_count = len(vidmoly_links)
+                
+                if sibnet_count >= vidmoly_count and sibnet_count > 0:
+                    # Convert to new format with simple episode names
+                    for ep_num, (service, video_id) in sibnet_links.items():
+                        episode_name = self._generate_episode_name(int(ep_num), complete_url)
+                        all_links[ep_num] = (service, video_id, episode_name)
+                elif vidmoly_count > 0:
+                    # Convert to new format with simple episode names  
+                    for ep_num, (service, video_id) in vidmoly_links.items():
+                        episode_name = self._generate_episode_name(int(ep_num), complete_url)
+                        all_links[ep_num] = (service, video_id, episode_name)
+            
+            # Report what we found
+            if all_links:
+                max_ep = max([int(k) for k in all_links.keys()])
+                service_type = list(all_links.values())[0][0] if all_links else "unknown"
+                self.debug_print(f"Found {len(all_links)} episodes (1-{max_ep}) using {service_type}")
+            else:
+                self.debug_print("No episodes found in any format")
             
             return all_links
         except requests.RequestException as e:
@@ -425,8 +478,13 @@ class AnimeDownloader:
 
     def get_video_url(self, video_data):
         try:
-            video_type, video_id = video_data
-            print(f"{B}🎬 Fetching video: {M}{video_type}:{video_id}{X}")
+            # Handle both old format (type, id) and new format (type, id, name)
+            if len(video_data) == 3:
+                video_type, video_id, episode_name = video_data
+                print(f"{B}🎬 Fetching: {M}{episode_name}{X} ({video_type}:{video_id})")
+            else:
+                video_type, video_id = video_data
+                print(f"{B}🎬 Fetching video: {M}{video_type}:{video_id}{X}")
             
             if video_type == 'sibnet':
                 return self._get_sibnet_url(video_id)
@@ -472,41 +530,47 @@ class AnimeDownloader:
     
     def _get_vidmoly_url(self, video_id):
         """
-        Try to extract direct video URL from Vidmoly embed page
+        Extract direct HLS URL from Vidmoly embed page manually
         """
         vidmoly_domains = ['vidmoly.net', 'vidmoly.to']
         
         for domain in vidmoly_domains:
             try:
                 embed_url = f"https://{domain}/embed-{video_id}.html"
-                print(f"{Y}🔍 Trying to extract from {domain}...{X}")
+                print(f"{Y}🔍 Extracting HLS URL from {domain}...{X}")
                 
-                # Try to get the embed page
-                response = self._cached_request('get', embed_url)
+                # Get the embed page with proper headers
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:134.0) Gecko/20100101 Firefox/134.0',
+                    'Referer': f'https://{domain}/'
+                }
+                response = self._cached_request('get', embed_url, headers=headers)
                 html_content = response.text
                 
-                # Look for direct video URL patterns in the HTML
-                video_patterns = [
-                    r'file:\s*["\']([^"\']+\.mp4[^"\']*)["\']',
-                    r'src:\s*["\']([^"\']+\.mp4[^"\']*)["\']',
-                    r'"file":"([^"]+\.mp4[^"]*)"',
-                    r'sources:\s*\[\s*{\s*file:\s*["\']([^"\']+)["\']'
+                # Look for the sources array with HLS URLs
+                # Pattern matches: sources: [{file:"https://box-...master.m3u8"}]
+                hls_patterns = [
+                    r'sources:\s*\[\s*\{\s*file:\s*["\']([^"\']+\.m3u8[^"\']*)["\']',
+                    r'file:\s*["\']([^"\']+\.m3u8[^"\']*)["\']',
+                    r'"file"\s*:\s*"([^"]+\.m3u8[^"]*)"',
+                    r'src:\s*["\']([^"\']+\.m3u8[^"\']*)["\']'
                 ]
                 
-                for pattern in video_patterns:
-                    match = re.search(pattern, html_content, re.IGNORECASE)
+                for pattern in hls_patterns:
+                    match = re.search(pattern, html_content, re.IGNORECASE | re.DOTALL)
                     if match:
                         video_url = match.group(1)
+                        # Clean up the URL
                         if video_url.startswith('//'):
                             video_url = 'https:' + video_url
                         elif not video_url.startswith('http'):
-                            video_url = f"https://{domain}/{video_url.lstrip('/')}"
+                            video_url = f"https://{video_url.lstrip('/')}"
                         
-                        print(f"{G}✅ Found direct video URL{X}")
+                        print(f"{G}✅ Found HLS stream URL{X}")
                         return video_url
                 
-                # If no direct URL found, return embed URL as fallback
-                print(f"{Y}⚠ No direct URL found, using embed URL{X}")
+                # If no HLS found, return embed URL as fallback
+                print(f"{Y}⚠ No HLS found, returning embed URL{X}")
                 return embed_url
                 
             except Exception as e:
@@ -946,11 +1010,17 @@ Examples:
     
     print(f"\n{BLUE}{BOLD}🎬 EPISODES:{RESET}")
     
-    # Format episodes for fzf
+    # Format episodes for fzf with real names
     ep_items = []
     ep_keys = list(episodes.keys())
-    for i, ep in enumerate(ep_keys):
-        ep_items.append(f"{i+1}. Episode {ep}")
+    for i, ep_key in enumerate(ep_keys):
+        episode_data = episodes[ep_key]
+        # Extract episode name if available
+        if len(episode_data) == 3:
+            _, _, episode_name = episode_data
+            ep_items.append(f"{i+1}. {episode_name}")
+        else:
+            ep_items.append(f"{i+1}. Episode {ep_key}")
     
     selected_episode_str = fzf_select(ep_items, "Select episode: ")
     if not selected_episode_str:
@@ -980,12 +1050,20 @@ Examples:
     try:
         # Configure mpv arguments based on video source
         if 'vidmoly' in video_url.lower():
-            print(f"{YELLOW}🎯 Attempting Vidmoly playback with yt-dlp...{RESET}")
-            # Use yt-dlp as the primary method for Vidmoly
+            print(f"{YELLOW}🎯 Attempting Vidmoly playback...{RESET}")
+            # Use special headers for Vidmoly URLs
             mpv_args = [
                 'mpv', video_url, '--fullscreen',
-                '--ytdl-format=best[height<=720]/best',  # Prefer 720p or best available
-                '--user-agent=Mozilla/5.0 (X11; Linux x86_64; rv:134.0) Gecko/20100101 Firefox/134.0'
+                '--user-agent=Mozilla/5.0 (X11; Linux x86_64; rv:134.0) Gecko/20100101 Firefox/134.0',
+                '--referrer=https://vidmoly.net/'
+            ]
+        elif '.m3u8' in video_url or 'vmwesa.online' in video_url:
+            print(f"{YELLOW}🎯 Playing HLS stream...{RESET}")
+            # Direct HLS stream from yt-dlp extraction
+            mpv_args = [
+                'mpv', video_url, '--fullscreen',
+                '--user-agent=Mozilla/5.0 (X11; Linux x86_64; rv:134.0) Gecko/20100101 Firefox/134.0',
+                '--referrer=https://vidmoly.net/'
             ]
         else:
             # For other sources (Sibnet, etc.)
