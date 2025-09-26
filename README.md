@@ -23,9 +23,8 @@ A CLI to browse and watch anime from <a href="https://anime-sama.fr">anime-sama.
 
 <h1 align="center">Showcase</h1>
 
-<p align="center">
-<img src="https://user-images.githubusercontent.com/placeholder/anisama-cli-demo.gif" alt="anisama-cli demo" width="80%">
-</p>
+[ani-cli-demo.webm](https://user-images.githubusercontent.com/44473782/224679247-0856e652-f187-4865-bbcf-5a8e5cf830da.webm)
+
 
 ## Table of Contents
 
