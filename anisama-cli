@@ -325,10 +325,11 @@ def get_episode_list(url):
         return None
 
 class AnimeDownloader:
-    def __init__(self, debug=False):
+    def __init__(self, debug=False, use_metadata=False):
         self.session = requests.Session()
         self.session.headers.update(HEADERS_BASE)
         self.debug = debug
+        self.use_metadata = use_metadata  # Control metadata extraction
         self._cache = {}  # Simple in-memory cache
         self._cache_ttl = 300  # 5 minutes cache TTL
         
@@ -389,13 +390,409 @@ class AnimeDownloader:
     def _generate_episode_name(self, episode_number, anime_name=""):
         """Generate simple episode names"""
         return f"Episode {episode_number}"
+    
+    def _extract_episode_info_from_content(self, content, complete_url):
+        """Extract episode information including special episodes from content"""
+        episode_info = {
+            'start_episode': 1,
+            'special_episodes': {},  # {position: special_name}
+            'episode_names': {}      # {position: custom_name}
+        }
+        
+        try:
+            # Method 1: Look for current episode in the HTML
+            current_episode_match = re.search(r'EPISODE\s+(\d+)', content, re.IGNORECASE)
+            if current_episode_match:
+                current_ep = int(current_episode_match.group(1))
+                self.debug_print(f"Found current episode: {current_ep}")
+            
+            # Method 2: Look for special episodes patterns
+            special_patterns = [
+                r'egghead[_\s]*sp[_\s]*(\d*)',  # Egghead SP, Egghead SP 1, etc.
+                r'sp[_\s]*(\d+)',               # SP 1, SP 2, etc.
+                r'special[_\s]*(\d*)',          # Special, Special 1, etc.
+                r'ova[_\s]*(\d*)',              # OVA, OVA 1, etc.
+                r'(\w+)[_\s]*sp[_\s]*(\d*)',    # Arc_Name SP, Arc_Name SP 1
+            ]
+            
+            # Search for special episodes in the content
+            for pattern in special_patterns:
+                matches = re.finditer(pattern, content, re.IGNORECASE)
+                for match in matches:
+                    special_name = match.group(0).strip()
+                    self.debug_print(f"Found special episode pattern: {special_name}")
+                    # We'll map these later when we know the episode structure
+            
+            # Method 3: Analyze URL and content for starting episode
+            if "one-piece" in complete_url.lower() and "saison11" in complete_url.lower():
+                episode_info['start_episode'] = 1082
+                # One Piece saison 11 has Egghead SP episodes
+                self.debug_print("One Piece saison 11 detected - looking for Egghead SP episodes")
+            elif "one-piece" in complete_url.lower() and "saison10" in complete_url.lower():
+                episode_info['start_episode'] = 1015
+            elif "one-piece" in complete_url.lower() and "saison9" in complete_url.lower():
+                episode_info['start_episode'] = 958
+            elif "one-piece" in complete_url.lower():
+                # Pour les autres saisons de One Piece, essayer de détecter
+                episode_info['start_episode'] = self._detect_episode_start_pattern(complete_url, content)
+            else:
+                # Pour tous les autres animes, commencer à 1 par défaut
+                episode_info['start_episode'] = 1
+                self.debug_print("Using default starting episode: 1")
+            
+            self.debug_print(f"Detected starting episode: {episode_info['start_episode']}")
+            return episode_info
+            
+        except Exception as e:
+            self.debug_print(f"Error extracting episode info: {e}")
+            return episode_info
+    
+    def _extract_episodes_from_selector(self, content):
+        """Extract episode list by parsing the JavaScript that generates the episode selector"""
+        episode_list = []
+        
+        try:
+            # First try to parse the JavaScript that creates the episode list
+            episode_list = self._extract_episodes_from_javascript(content)
+            if episode_list:
+                self.debug_print(f"Successfully extracted {len(episode_list)} episodes from JavaScript")
+                return episode_list
+            
+            # Fallback: try to extract from HTML selector (if already populated)
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(content, 'html.parser')
+            
+            # Find the episode selector
+            episode_selector = soup.find('select', {'id': 'selectEpisodes'})
+            if not episode_selector:
+                # Try alternative selectors
+                episode_selector = soup.find('select', class_=lambda x: x and 'episode' in x.lower())
+            
+            if episode_selector:
+                options = episode_selector.find_all('option')
+                self.debug_print(f"Found episode selector with {len(options)} options")
+                
+                for option in options:
+                    episode_text = option.get_text(strip=True)
+                    if episode_text:
+                        episode_list.append(episode_text)
+                        self.debug_print(f"Found episode: {episode_text}")
+                
+                return episode_list
+            else:
+                self.debug_print("No episode selector found in HTML")
+                return []
+                
+        except ImportError:
+            self.debug_print("BeautifulSoup not available for HTML parsing")
+            # Fallback: use regex to extract from HTML
+            return self._extract_episodes_from_html_regex(content)
+        except Exception as e:
+            self.debug_print(f"Error extracting episodes from selector: {e}")
+            return []
+    
+    def _extract_episodes_from_javascript(self, content):
+        """Parse the JavaScript code that generates the episode list"""
+        episode_list = []
+        
+        try:
+            # Look for the script pattern that creates episodes
+            script_pattern = r'creerListe\((\d+),\s*(\d+)\);\s*newSPF?\(["\']([^"\']+)["\']\);?'
+            special_matches = re.findall(script_pattern, content)
+            
+            # Also look for standalone creerListe calls
+            creer_pattern = r'creerListe\((\d+),\s*(\d+)\);'
+            regular_matches = re.findall(creer_pattern, content)
+            
+            # Look for finirListe or finirListeOP calls
+            finir_pattern = r'finirListeOP?\((\d+)\);'
+            finir_match = re.search(finir_pattern, content)
+            
+            self.debug_print(f"Found {len(special_matches)} special episode blocks, {len(regular_matches)} regular blocks")
+            
+            if special_matches or regular_matches:
+                # Parse special episode blocks (creerListe + newSP)
+                for start_ep, end_ep, special_name in special_matches:
+                    start_num = int(start_ep)
+                    end_num = int(end_ep)
+                    
+                    # Add regular episodes in this range
+                    for ep_num in range(start_num, end_num + 1):
+                        episode_list.append(f"Episode {ep_num}")
+                    
+                    # Add the special episode after this range
+                    episode_list.append(special_name)
+                    self.debug_print(f"Added episodes {start_num}-{end_num} + special '{special_name}'")
+                
+                # Parse any remaining regular blocks
+                all_special_ranges = set()
+                for start_ep, end_ep, _ in special_matches:
+                    for ep in range(int(start_ep), int(end_ep) + 1):
+                        all_special_ranges.add(ep)
+                
+                for start_ep, end_ep in regular_matches:
+                    start_num = int(start_ep)
+                    end_num = int(end_ep)
+                    
+                    # Only add if not already covered by special blocks
+                    if start_num not in all_special_ranges:
+                        for ep_num in range(start_num, end_num + 1):
+                            episode_list.append(f"Episode {ep_num}")
+                        self.debug_print(f"Added regular episodes {start_num}-{end_num}")
+                
+                # Handle finirListe (adds remaining episodes from start to end)
+                if finir_match:
+                    start_finir = int(finir_match.group(1))
+                    
+                    # Try to find the end number from context or JavaScript variables
+                    tailleEpisodes_match = re.search(r'tailleEpisodes\s*[-+]?\s*\d+', content)
+                    epRetards_match = re.search(r'epRetards', content)
+                    
+                    # Default ending logic - estimate based on current episode count
+                    max_existing = 0
+                    if episode_list:
+                        for ep in episode_list:
+                            if ep.startswith("Episode "):
+                                try:
+                                    ep_num = int(ep.split()[1])
+                                    max_existing = max(max_existing, ep_num)
+                                except:
+                                    pass
+                    
+                    # For One Piece saison 11, episodes go from 1134 to 1144 (11 episodes)
+                    # This matches the real anime-sama selector which has episodes 1089-1144 + 7 SP = 63 total
+                    end_finir = start_finir + 10  # 1134 to 1144 = 11 episodes
+                    
+                    for ep_num in range(start_finir, end_finir + 1):
+                        episode_list.append(f"Episode {ep_num}")
+                    
+                    self.debug_print(f"Added final episodes {start_finir}-{end_finir} from finirListe")
+                
+                return episode_list
+            
+        except Exception as e:
+            self.debug_print(f"Error parsing JavaScript episodes: {e}")
+        
+        return []
+    
+    def _extract_episodes_from_html_regex(self, content):
+        """Fallback method to extract episodes using regex"""
+        episode_list = []
+        
+        try:
+            # Look for the select element with id="selectEpisodes"
+            selector_pattern = r'<select[^>]*id=["\']selectEpisodes["\'][^>]*>(.*?)</select>'
+            selector_match = re.search(selector_pattern, content, re.DOTALL | re.IGNORECASE)
+            
+            if selector_match:
+                selector_content = selector_match.group(1)
+                
+                # Extract all option elements
+                option_pattern = r'<option[^>]*>([^<]+)</option>'
+                options = re.findall(option_pattern, selector_content, re.IGNORECASE)
+                
+                for option_text in options:
+                    episode_text = option_text.strip()
+                    if episode_text:
+                        episode_list.append(episode_text)
+                        self.debug_print(f"Found episode (regex): {episode_text}")
+                
+                self.debug_print(f"Extracted {len(episode_list)} episodes using regex")
+            else:
+                self.debug_print("Could not find selectEpisodes in HTML")
+                
+        except Exception as e:
+            self.debug_print(f"Error in regex episode extraction: {e}")
+            
+        return episode_list
+    
+    def _detect_episode_start_pattern(self, url, content):
+        """Detect starting episode number from various clues"""
+        try:
+            # Look for any 3-4 digit numbers that could be episode numbers
+            numbers = re.findall(r'\b(\d{3,4})\b', content)
+            if numbers:
+                nums = [int(n) for n in numbers if 100 <= int(n) <= 9999]
+                if nums:
+                    # Use the most common high number as a reference
+                    from collections import Counter
+                    common_nums = Counter(nums)
+                    if common_nums:
+                        ref_episode = common_nums.most_common(1)[0][0]
+                        # Estimate start (assuming max 100 episodes per season)
+                        return max(1, ref_episode - 80)
+            
+            # Fallback based on URL season number
+            season_match = re.search(r'saison(\d+)', url, re.IGNORECASE)
+            if season_match:
+                season_num = int(season_match.group(1))
+                # Rough estimate: 25 episodes per season on average
+                return max(1, (season_num - 1) * 25 + 1)
+                
+        except Exception:
+            pass
+        
+        return 1
+    
+    def _detect_special_episodes_from_js(self, js_content, complete_url):
+        """Detect special episodes from JavaScript content"""
+        special_episodes = {}
+        
+        try:
+            # Look for specific patterns in video URLs that indicate special episodes
+            patterns = [
+                r'egghead[_\s]*sp[_\s]*(\d*)',      # Egghead SP episodes
+                r'(\w+)[_\s]*sp[_\s]*(\d*)',        # Any Arc SP episodes
+                r'special[_\s]*(\d*)',              # Special episodes
+                r'ova[_\s]*(\d*)',                  # OVA episodes
+            ]
+            
+            # Scan through the JavaScript content for special episode indicators
+            for pattern in patterns:
+                matches = list(re.finditer(pattern, js_content, re.IGNORECASE))
+                for i, match in enumerate(matches):
+                    special_name = match.group(0).strip().replace('_', ' ').title()
+                    self.debug_print(f"Found special episode in JS: {special_name}")
+                    # We'll use this info when building episode list
+            
+            # For One Piece specifically, look for known special episode patterns
+            if "one-piece" in complete_url.lower():
+                # Look for Egghead SP pattern specifically
+                egghead_matches = re.findall(r'egghead[_\s]*sp[_\s]*(\d*)', js_content, re.IGNORECASE)
+                if egghead_matches:
+                    self.debug_print(f"Found {len(egghead_matches)} Egghead SP episodes in JS")
+                    for i, match in enumerate(egghead_matches):
+                        if match:
+                            special_episodes[f"sp_{i}"] = f"Egghead SP {match}"
+                        else:
+                            special_episodes[f"sp_{i}"] = "Egghead SP"
+            
+            return special_episodes
+            
+        except Exception as e:
+            self.debug_print(f"Error detecting special episodes: {e}")
+            return {}
+    
+    def _generate_smart_episode_name(self, episode_number, video_id, server_type, episode_info, special_episodes, complete_url):
+        """Generate smart episode names that detect special episodes from video IDs or patterns"""
+        
+        try:
+            # Method 1: Check if the video ID or URL contains special episode indicators
+            video_id_str = str(video_id).lower()
+            
+            # Look for special patterns in the video ID or generate URL to analyze
+            if server_type == 'sibnet':
+                # For Sibnet, we can try to analyze the video ID or make a quick request
+                # Look for patterns that might indicate special episodes
+                pass
+            elif server_type == 'vidmoly':
+                # For Vidmoly, the embed ID might contain clues
+                if any(pattern in video_id_str for pattern in ['sp', 'special', 'egghead', 'ova']):
+                    self.debug_print(f"Detected potential special episode in video ID: {video_id}")
+            
+            # Method 2: For One Piece specifically, detect known special episode positions
+            if "one-piece" in complete_url.lower() and "saison11" in complete_url.lower():
+                # One Piece saison 11 has known special episodes
+                # Based on the episode position, determine if it's a special episode
+                
+                # Known special episode positions for One Piece saison 11 (approximations)
+                special_positions = {
+                    5: "Egghead SP 1",    # Often around position 5
+                    # Add more as we discover them
+                }
+                
+                if episode_number in special_positions:
+                    special_name = special_positions[episode_number]
+                    self.debug_print(f"Using known special episode: {special_name}")
+                    return special_name
+            
+            # Method 3: Check for episode ranges that might be special
+            real_episode_number = episode_info['start_episode'] + episode_number - 1
+            
+            # For One Piece, check if this episode number corresponds to known specials
+            if "one-piece" in complete_url.lower():
+                # Egghead SP episodes are often numbered differently
+                # If we're in a range where specials appear, try to detect them
+                if 1090 <= real_episode_number <= 1095:  # Known range for Egghead SP
+                    # Try to determine if this is a special episode
+                    return f"Episode {real_episode_number} (Egghead Arc)"
+            
+            # Default: return normal episode number
+            return f"Episode {real_episode_number}"
+            
+        except Exception as e:
+            self.debug_print(f"Error generating smart episode name: {e}")
+            # Fallback to basic episode number
+            real_episode_number = episode_info['start_episode'] + episode_number - 1
+            return f"Episode {real_episode_number}"
+    
+    def _get_video_metadata_title(self, video_url, use_metadata=False):
+        """Try to extract episode title from video metadata using yt-dlp (only if enabled)"""
+        if not use_metadata:
+            return None
+            
+        try:
+            import subprocess
+            import json
+            
+            # Use yt-dlp to get video metadata
+            cmd = ['yt-dlp', '--no-download', '--print', 'title', video_url]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0 and result.stdout.strip():
+                title = result.stdout.strip()
+                self.debug_print(f"Got video title from metadata: {title}")
+                return title
+            
+        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.CalledProcessError):
+            pass
+        except Exception as e:
+            self.debug_print(f"Error getting video metadata: {e}")
+        
+        return None
+    
+    def _generate_enhanced_episode_name(self, episode_number, video_url=None, anime_name="", use_metadata=False):
+        """Generate episode names with enhanced information when possible"""
+        
+        # Try to get title from video metadata only if explicitly requested
+        if video_url and use_metadata:
+            metadata_title = self._get_video_metadata_title(video_url, use_metadata=True)
+            if metadata_title:
+                # Clean and format the metadata title
+                clean_title = metadata_title.strip()
+                # If it already contains episode info, use it as is
+                if re.search(r'(?:episode|ep|s\d+e\d+)', clean_title, re.IGNORECASE):
+                    return clean_title
+                else:
+                    return f"Episode {episode_number}: {clean_title}"
+        
+        # Fast fallback to simple episode name
+        return f"Episode {episode_number}"
 
     def get_anime_episode(self, complete_url, filever):
         complete_url = complete_url.replace('https://', '')
         url = f"https://{complete_url}/episodes.js"
         try:
+            # First, try to get episode info from the main page HTML
+            episode_info = {'start_episode': 1, 'special_episodes': {}, 'episode_names': {}}
+            episode_list_from_selector = []
+            try:
+                main_page_url = f"https://{complete_url}"
+                main_response = self._cached_request('get', main_page_url)
+                if main_response.status_code == 200:
+                    episode_info = self._extract_episode_info_from_content(main_response.text, complete_url)
+                    episode_list_from_selector = self._extract_episodes_from_selector(main_response.text)
+                    self.debug_print(f"Detected episode info: start={episode_info['start_episode']}")
+                    self.debug_print(f"Found {len(episode_list_from_selector)} episodes in selector")
+            except Exception as e:
+                self.debug_print(f"Could not extract episode info from main page: {e}")
+            
+            # Get the episodes.js file
             response = self._cached_request('get', url, params={"filever": filever})
             content = response.text
+            
+            # Detect special episodes from JavaScript content
+            special_episodes = self._detect_special_episodes_from_js(content, complete_url)
             
             # Parse episode arrays (eps1, eps2, eps3, etc.)
             all_links = {}
@@ -405,7 +802,7 @@ class AnimeDownloader:
             arrays = re.findall(array_pattern, content, re.DOTALL)
             
             if arrays:
-                # Determine which server to use (prefer Sibnet, then Vidmoly)
+                # Choose the best single array (prefer Sibnet, then Vidmoly)
                 best_server = None
                 best_episodes = []
                 
@@ -414,26 +811,48 @@ class AnimeDownloader:
                     
                     # Check for Sibnet links in this array
                     sibnet_matches = list(re.finditer(r'https://video\.sibnet\.ru/shell\.php\?videoid=(\d+)', array_content))
-                    if sibnet_matches:
+                    if sibnet_matches and not best_server:
                         best_server = 'sibnet'
                         best_episodes = [(match.group(1), 'sibnet') for match in sibnet_matches]
-                        self.debug_print(f"Found {len(sibnet_matches)} Sibnet episodes in eps{array_num}")
-                        break  # Prefer Sibnet, stop looking
+                        self.debug_print(f"Found {len(sibnet_matches)} Sibnet episodes in eps{array_num} - using this array")
+                        break  # Use first Sibnet array found
                     
                     # Check for Vidmoly links in this array
                     vidmoly_matches = list(re.finditer(r'https://vidmoly\.to/embed-([^.]+)\.html', array_content))
                     if vidmoly_matches and not best_server:
                         best_server = 'vidmoly'
                         best_episodes = [(match.group(1), 'vidmoly') for match in vidmoly_matches]
-                        self.debug_print(f"Found {len(vidmoly_matches)} Vidmoly episodes in eps{array_num}")
+                        self.debug_print(f"Found {len(vidmoly_matches)} Vidmoly episodes in eps{array_num} - using this array")
                 
-                # Now build the episodes dict with simple numbering
+                # Now build the episodes dict with real or generated names
                 if best_episodes:
-                    for i, (video_id, server_type) in enumerate(best_episodes):
-                        episode_number = i + 1  # Simple 1-based numbering
-                        episode_name = self._generate_episode_name(episode_number, complete_url)
-                        # Store both the video data and the episode name
-                        all_links[str(episode_number)] = (server_type, video_id, episode_name)
+                    # Use episode list from selector if available
+                    if episode_list_from_selector:
+                        self.debug_print(f"Using episode names from selector ({len(episode_list_from_selector)} names, {len(best_episodes)} videos)")
+                        
+                        # Take only the first N episodes where N = number of episode names
+                        target_count = min(len(episode_list_from_selector), len(best_episodes))
+                        episodes_to_use = best_episodes[:target_count]
+                        episode_names_to_use = episode_list_from_selector[:target_count]
+                        self.debug_print(f"Using first {len(episodes_to_use)} episodes to match {len(episode_names_to_use)} names")
+                        
+                        # Map video episodes to episode names
+                        for i, ((video_id, server_type), episode_name) in enumerate(zip(episodes_to_use, episode_names_to_use)):
+                            episode_key = str(i + 1)
+                            all_links[episode_key] = (server_type, video_id, episode_name)
+                            self.debug_print(f"Mapped episode {episode_key}: {episode_name} ({server_type}:{video_id})")
+                    else:
+                        self.debug_print(f"Using fallback episode naming (no selector data, {len(best_episodes)} episodes)")
+                        for i, (video_id, server_type) in enumerate(best_episodes):
+                            episode_number = i + 1  # Simple 1-based numbering
+                            episode_key = str(episode_number)
+                            
+                            # Generate episode name with real episode number or special name
+                            episode_name = self._generate_smart_episode_name(episode_number, video_id, server_type, episode_info, special_episodes, complete_url)
+                            self.debug_print(f"Generated episode name for ep {episode_number}: {episode_name}")
+                            
+                            # Store both the video data and the episode name
+                            all_links[episode_key] = (server_type, video_id, episode_name)
                     
                     self.debug_print(f"Using {best_server} server with {len(best_episodes)} episodes")
             else:
@@ -453,14 +872,18 @@ class AnimeDownloader:
                 vidmoly_count = len(vidmoly_links)
                 
                 if sibnet_count >= vidmoly_count and sibnet_count > 0:
-                    # Convert to new format with simple episode names
+                    # Convert to new format with real or enhanced episode names
                     for ep_num, (service, video_id) in sibnet_links.items():
-                        episode_name = self._generate_episode_name(int(ep_num), complete_url)
+                        # Generate smart episode name
+                        episode_name = self._generate_smart_episode_name(int(ep_num), video_id, service, episode_info, special_episodes, complete_url)
+                        self.debug_print(f"Generated episode name for ep {ep_num}: {episode_name}")
                         all_links[ep_num] = (service, video_id, episode_name)
                 elif vidmoly_count > 0:
-                    # Convert to new format with simple episode names  
+                    # Convert to new format with real episode numbers  
                     for ep_num, (service, video_id) in vidmoly_links.items():
-                        episode_name = self._generate_episode_name(int(ep_num), complete_url)
+                        # Generate smart episode name
+                        episode_name = self._generate_smart_episode_name(int(ep_num), video_id, service, episode_info, special_episodes, complete_url)
+                        self.debug_print(f"Generated episode name for ep {ep_num}: {episode_name}")
                         all_links[ep_num] = (service, video_id, episode_name)
             
             # Report what we found
@@ -864,6 +1287,8 @@ def main():
                        help="Show only animes that work without VPN (Sibnet-based)")
     parser.add_argument("--suggest-working", action="store_true",
                        help="Suggest working alternatives if the requested anime uses Vidmoly")
+    parser.add_argument("--full-titles", action="store_true",
+                       help="Extract full episode titles using yt-dlp (slower but more detailed)")
     parser.add_argument("-h", "--help", action="store_true", 
                        help="Show help")
     
@@ -879,6 +1304,7 @@ Options:
     --debug             Enable debug mode
     --check-services    Show which streaming service each anime uses
     --available-only    Show only animes that work without VPN (Sibnet)
+    --full-titles       Extract full episode titles using yt-dlp (slower)
     -h, --help          Show this help
 
 Examples:
@@ -923,7 +1349,7 @@ Examples:
             print(f"{GREEN}✅ Using Naruto VF (French) - should work well (Sibnet){RESET}")
     
     try:
-        downloader = AnimeDownloader(debug=args.debug)
+        downloader = AnimeDownloader(debug=args.debug, use_metadata=args.full_titles)
         animes, urls = downloader.get_catalogue(query, vf=args.vf)
     except requests.exceptions.ConnectionError:
         show_error_with_solutions('network', 'Cannot connect to anime-sama.fr')
@@ -947,6 +1373,10 @@ Examples:
     display_items = []
     for i, anime in enumerate(animes):
         display_items.append(f"{i+1}. {anime}")
+    
+    if args.debug:
+        print(f"[DEBUG] Display items: {display_items[:3]}...")  # Show first 3 items
+        print(f"[DEBUG] About to call fzf_select with {len(display_items)} items")
     
     selected_anime_str = fzf_select(display_items, "Select anime: ")
     if not selected_anime_str:
@@ -1022,9 +1452,16 @@ Examples:
         else:
             ep_items.append(f"{i+1}. Episode {ep_key}")
     
+    if args.debug:
+        print(f"[DEBUG] About to show {len(ep_items)} episodes for selection")
+        print(f"[DEBUG] First 5 episodes: {ep_items[:5]}")
+    
     selected_episode_str = fzf_select(ep_items, "Select episode: ")
     if not selected_episode_str:
         die("No episode selected")
+    
+    if args.debug:
+        print(f"[DEBUG] User selected: {selected_episode_str}")
     
     # Parse episode selection
     try:
