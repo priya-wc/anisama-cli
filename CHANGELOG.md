@@ -1,5 +1,17 @@
 # 📝 CHANGELOG
 
+## Version 1.3.1 - 2025-10-05 🔧
+
+### 🐛 CORRECTIONS CRITIQUES
+- **✅ Fix limitation épisodes** - Suppression du hard-code limitant les épisodes à 1144
+- **🎯 Détection dynamique** - Calcul automatique du dernier épisode basé sur les données JavaScript
+- **📺 One Piece à jour** - Support épisodes 1145+ et futurs épisodes automatiquement
+
+### 🔧 AMÉLIORATIONS TECHNIQUES  
+- **Smart episode range** - Utilise `tailleEpisodes` et `epRetards` du JavaScript d'anime-sama
+- **Fallback intelligent** - Estimation basée sur max_existing + marge de sécurité
+- **Future-proof** - Plus besoin de mise à jour manuelle pour chaque nouvel épisode
+
 ## Version 1.2.0 - 2025-09-25 🔧
 
 ### ✨ NOUVELLES FONCTIONNALITÉS  
