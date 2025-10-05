@@ -273,6 +273,6 @@ We welcome contributions! Here's how you can help:
 
 <p align="center">
 <strong>⭐ Star this project if you find it useful!</strong><br>
-<em>Built with ❤️ by <a href="https://github.com/karbonedev">karbonedev</a></em><br>
+<em>Built with ❤️ by <a href="https://github.com/can-oktay404">Can Oktay</a></em><br>
 <small>Original inspiration from <a href="https://github.com/pystardust/ani-cli">ani-cli</a> 🙏</small>
 </p>
