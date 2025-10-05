@@ -544,24 +544,45 @@ class AnimeDownloader:
                 if finir_match:
                     start_finir = int(finir_match.group(1))
                     
-                    # Try to find the end number from context or JavaScript variables
-                    tailleEpisodes_match = re.search(r'tailleEpisodes\s*[-+]?\s*\d+', content)
-                    epRetards_match = re.search(r'epRetards', content)
+                    # Try to find the actual end episode from JavaScript variables
+                    end_finir = None
                     
-                    # Default ending logic - estimate based on current episode count
-                    max_existing = 0
-                    if episode_list:
-                        for ep in episode_list:
-                            if ep.startswith("Episode "):
-                                try:
-                                    ep_num = int(ep.split()[1])
-                                    max_existing = max(max_existing, ep_num)
-                                except:
-                                    pass
+                    # Method 1: Look for tailleEpisodes variable (total number of episodes)
+                    taille_match = re.search(r'var\s+tailleEpisodes\s*=\s*(\d+)', content)
+                    if taille_match:
+                        total_episodes = int(taille_match.group(1))
+                        # Check for epRetards (delayed episodes count)
+                        retards_match = re.search(r'var\s+epRetards\s*=\s*(\d+)', content)
+                        retards = int(retards_match.group(1)) if retards_match else 0
+                        end_finir = total_episodes - retards
+                        self.debug_print(f"Found tailleEpisodes={total_episodes}, epRetards={retards}, end_finir={end_finir}")
                     
-                    # For One Piece saison 11, episodes go from 1134 to 1144 (11 episodes)
-                    # This matches the real anime-sama selector which has episodes 1089-1144 + 7 SP = 63 total
-                    end_finir = start_finir + 10  # 1134 to 1144 = 11 episodes
+                    # Method 2: Look for episodes.length or similar
+                    if not end_finir:
+                        length_match = re.search(r'episodes\.length\s*=\s*(\d+)', content)
+                        if length_match:
+                            end_finir = int(length_match.group(1))
+                            self.debug_print(f"Found episodes.length={end_finir}")
+                    
+                    # Method 3: Look for the highest episode number in existing episodes
+                    if not end_finir:
+                        max_existing = 0
+                        if episode_list:
+                            for ep in episode_list:
+                                if ep.startswith("Episode "):
+                                    try:
+                                        ep_num = int(ep.split()[1])
+                                        max_existing = max(max_existing, ep_num)
+                                    except:
+                                        pass
+                        # Use max_existing + reasonable buffer for new episodes
+                        end_finir = max(start_finir + 20, max_existing + 5)
+                        self.debug_print(f"Using estimated end_finir={end_finir} based on max_existing={max_existing}")
+                    
+                    # Fallback: if still no end_finir, use start + 50 for long-running series
+                    if not end_finir:
+                        end_finir = start_finir + 50
+                        self.debug_print(f"Using fallback end_finir={end_finir}")
                     
                     for ep_num in range(start_finir, end_finir + 1):
                         episode_list.append(f"Episode {ep_num}")
