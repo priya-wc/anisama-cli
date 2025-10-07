@@ -11,7 +11,7 @@
 - **Smart episode range** - Utilise `tailleEpisodes` et `epRetards` du JavaScript d'anime-sama
 - **Fallback intelligent** - Estimation basée sur max_existing + marge de sécurité
 - **Future-proof** - Plus besoin de mise à jour manuelle pour chaque nouvel épisode
-
+z
 ## Version 1.2.0 - 2025-09-25 🔧
 
 ### ✨ NOUVELLES FONCTIONNALITÉS  
